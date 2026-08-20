@@ -306,8 +306,12 @@ class Database:
 
     def seed_parser_api(self, config: dict[str, Any]) -> None:
         name = str(config.get("name") or "")
+        url = str(config.get("url") or "")
         with self._lock, self._conn() as c:
-            row = c.execute("SELECT id FROM parser_apis WHERE name=? LIMIT 1", (name,)).fetchone()
+            row = c.execute(
+                "SELECT id FROM parser_apis WHERE name=? OR url=? LIMIT 1",
+                (name, url),
+            ).fetchone()
         if row:
             return
         seeded = dict(config)

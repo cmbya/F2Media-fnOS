@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import httpx
 
@@ -201,7 +201,9 @@ class ShortVideosLocalParser:
         return m.group(1) if m else None
 
     async def _parse_xiaohongshu(self, url: str, cookie: str | None) -> dict[str, Any]:
-        # Preserve a redirect that contains an item id even if a later hop is a captcha page.
+        # Preserve the real note URL even when xhslink ultimately redirects to a
+        # website-login/captcha wrapper. That wrapper carries the original work URL
+        # in its redirectPath query parameter.
         async with httpx.AsyncClient(headers=_headers(cookie), follow_redirects=False, timeout=self.timeout) as client:
             current = url.replace("xhs.com", "xhslink.com")
             resolved = current
@@ -210,18 +212,21 @@ class ShortVideosLocalParser:
                 location = response.headers.get("location")
                 if location:
                     next_url = str(httpx.URL(current).join(location))
+                    work_url = self._xhs_redirect_work_url(next_url)
+                    if work_url:
+                        resolved = work_url
+                        current = work_url
+                        break
                     if self._xhs_id(next_url):
                         resolved = next_url
                     current = next_url
                     continue
-                resolved = current
+                work_url = self._xhs_redirect_work_url(str(response.url))
+                resolved = work_url or current
                 break
         note_id = self._xhs_id(resolved) or self._xhs_id(current)
         if not note_id:
             raise RuntimeError("小红书短链跳转后仍无法提取作品 ID")
-        # Prefer the captured work URL; strip a captcha redirect if necessary.
-        if "website-login/captcha" in resolved:
-            raise RuntimeError("小红书返回验证码页面，请更新 Cookie 后重试")
         response = await self._client_get(resolved, cookie)
         if "website-login/captcha" in str(response.url):
             raise RuntimeError("小红书返回验证码页面，请更新 Cookie 后重试")
@@ -233,6 +238,20 @@ class ShortVideosLocalParser:
         if not note:
             raise RuntimeError("未从小红书 __INITIAL_STATE__ 找到笔记数据")
         return {"code": 200, "data": self._format_xhs_note(note)}
+
+    @staticmethod
+    def _xhs_redirect_work_url(url: str) -> str | None:
+        if "website-login/captcha" not in url:
+            return None
+        try:
+            values = parse_qs(urlparse(url).query).get("redirectPath") or []
+        except Exception:
+            return None
+        for value in values:
+            candidate = unquote(str(value)).strip()
+            if candidate.startswith(("http://", "https://")) and ShortVideosLocalParser._xhs_id(candidate):
+                return candidate
+        return None
 
     @staticmethod
     def _xhs_id(url: str) -> str | None:

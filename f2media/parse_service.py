@@ -8,7 +8,7 @@ import re
 import uuid
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -62,12 +62,16 @@ class ParseService:
         if item.platform == "unknown":
             return {"ok": False, "platform": "unknown", "source_url": item.url, "attempts": [], "error": "无法识别平台"}
 
+        source_item = item
+        item = self._normalize_routing_item(item)
         cookie, _ = self.cookies.get(item.platform)
         attempts: list[dict[str, Any]] = []
         self.logger.info(
             "parse start platform=%s url=%s cookie_configured=%s cookie_format=%s",
-            item.platform, item.url, bool(cookie), "netscape" if cookie and cookie.lstrip().startswith("# Netscape") else ("header" if cookie else "none"),
+            item.platform, source_item.url, bool(cookie), "netscape" if cookie and cookie.lstrip().startswith("# Netscape") else ("header" if cookie else "none"),
         )
+        if item.url != source_item.url:
+            self.logger.info("parse normalized platform=%s source=%s canonical=%s", item.platform, source_item.url, item.url)
 
         pipeline: list[tuple[str, Any]] = []
         if item.platform == "douyin":
@@ -90,11 +94,14 @@ class ParseService:
                 attempts.append({"parser": parser_name, "ok": True})
                 result["attempts"] = attempts
                 result["cookie_configured"] = bool(cookie)
-                result["title"] = safe_title(result.get("title"), self._fallback_title(item))
+                result["title"] = safe_title(result.get("title"), self._fallback_title(source_item))
+                result["source_url"] = source_item.url
+                if item.url != source_item.url:
+                    result["canonical_url"] = item.url
                 if persist:
                     parse_id = uuid.uuid4().hex[:16]
                     result["parse_id"] = parse_id
-                    self.db.put_parse_result(parse_id, source_text or item.url, result)
+                    self.db.put_parse_result(parse_id, source_text or source_item.url, result)
                 self.logger.info(
                     "parse success platform=%s parser=%s type=%s videos=%s images=%s live=%s",
                     item.platform, result.get("parser"), result.get("media_type"),
@@ -108,15 +115,31 @@ class ParseService:
                 self.logger.info("parse fallback platform=%s parser=%s error=%s", item.platform, parser_name, error)
 
         error = attempts[-1].get("error") if attempts else "没有可用解析器"
-        self.logger.warning("parse failed platform=%s url=%s attempts=%s", item.platform, item.url, attempts)
+        self.logger.warning("parse failed platform=%s url=%s attempts=%s", item.platform, source_item.url, attempts)
         return {
             "ok": False,
             "platform": item.platform,
-            "source_url": item.url,
+            "source_url": source_item.url,
+            "canonical_url": item.url if item.url != source_item.url else source_item.url,
             "attempts": attempts,
             "cookie_configured": bool(cookie),
             "error": error or "所有解析器均失败",
         }
+
+    @staticmethod
+    def _normalize_routing_item(item: ParsedInput) -> ParsedInput:
+        # Douyin desktop shares can point at /user/<sec_uid>?modal_id=<aweme_id>.
+        # The modal_id is the actual work id; normalize it before every parser so
+        # dedicated/local/free/yt-dlp adapters all see a normal work URL.
+        if item.platform == "douyin":
+            try:
+                parsed = urlparse(item.url)
+                modal_id = (parse_qs(parsed.query).get("modal_id") or [""])[0].strip()
+            except Exception:
+                modal_id = ""
+            if modal_id.isdigit():
+                return ParsedInput(url=f"https://www.douyin.com/video/{modal_id}", platform=item.platform)
+        return item
 
     async def _free_api_probe(self, item: ParsedInput) -> dict[str, Any]:
         result, config = await self.free_apis.parse(item.platform, item.url)

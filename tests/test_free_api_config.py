@@ -1,11 +1,46 @@
-from f2media.parsers.free_api import apply_mapping, DEFAULT_BUGPK
+from f2media.core.db import Database
+from f2media.parsers.free_api import (
+    BUILTIN_APIS,
+    DEFAULT_BUGPK,
+    DEFAULT_BUGPK_DOUYIN,
+    DEFAULT_BUGPK_DYZY,
+    DEFAULT_BUGPK_KSJX,
+    DEFAULT_BUGPK_SVPARSE,
+    FreeApiStore,
+    apply_mapping,
+)
 
 
-def test_default_bugpk_order_and_platform_scope():
-    assert DEFAULT_BUGPK['url'] == 'https://api.bugpk.com/api/short_videos'
+def test_builtin_bugpk_endpoints_and_order():
+    assert [x['url'] for x in BUILTIN_APIS] == [
+        'https://api.bugpk.com/api/douyin',
+        'https://api.bugpk.com/api/ksjx',
+        'https://api.bugpk.com/api/svparse',
+        'https://api.bugpk.com/api/dyzy',
+        'https://api.bugpk.com/api/short_videos',
+    ]
+    assert DEFAULT_BUGPK_DOUYIN['priority'] == 10
+    assert DEFAULT_BUGPK_KSJX['priority'] == 10
+    assert DEFAULT_BUGPK_SVPARSE['priority'] == 20
+    assert DEFAULT_BUGPK_DYZY['priority'] == 30
     assert DEFAULT_BUGPK['priority'] == 100
-    assert 'douyin' in DEFAULT_BUGPK['platforms']
     assert 'youtube' in DEFAULT_BUGPK['platforms']
+
+
+def test_existing_v020_database_gets_all_missing_builtin_apis_once(tmp_path):
+    db = Database(tmp_path / 'db.sqlite')
+    # Simulate v0.2.0: only the aggregate API already existed.
+    db.seed_parser_api(DEFAULT_BUGPK)
+    assert len(db.parser_apis()) == 1
+
+    FreeApiStore(db)
+    rows = db.parser_apis()
+    assert len(rows) == 5
+    assert {x['url'] for x in rows} == {x['url'] for x in BUILTIN_APIS}
+
+    # Startup again must not create duplicates.
+    FreeApiStore(db)
+    assert len(db.parser_apis()) == 5
 
 
 def test_free_api_mapping_supports_replacement_provider_shapes():

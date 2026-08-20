@@ -140,7 +140,11 @@ def normalize_external_result(
     if video and raw_type not in {"image", "gallery", "live"}:
         media.append({"type": "video", "url": video})
 
-    raw_videos = data.get("videos") or data.get("video_backup") or []
+    # `videos` means multiple real media items. `video_backup` means alternate
+    # URLs for the same video on BugPK/short_videos-style APIs and must not be
+    # counted or downloaded as extra content. Use a backup only when no primary
+    # video URL and no real multi-video list were returned.
+    raw_videos = data.get("videos") or []
     if isinstance(raw_videos, (str, dict)):
         raw_videos = [raw_videos]
     if isinstance(raw_videos, list):
@@ -148,6 +152,19 @@ def normalize_external_result(
             url = clean_url(value)
             if url:
                 media.append({"type": "video", "url": url})
+
+    if not video and not raw_videos:
+        backups = data.get("video_backup") or []
+        if isinstance(backups, (str, dict)):
+            backups = [backups]
+        if isinstance(backups, list):
+            backup = None
+            for value in backups:
+                backup = clean_url(value)
+                if backup:
+                    break
+            if backup and raw_type not in {"image", "gallery", "live"}:
+                media.append({"type": "video", "url": backup, "backup": True})
 
     raw_images = data.get("images") or []
     if isinstance(raw_images, (str, dict)):
