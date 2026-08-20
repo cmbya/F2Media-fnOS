@@ -87,6 +87,7 @@ jobs:
             python -m pip check
             python - <<'PY'
           from importlib.metadata import version
+          from fastapi import APIRouter, FastAPI
           import f2media
           import parse_video_py
           from fastapi_mcp import FastApiMCP
@@ -98,8 +99,26 @@ jobs:
           print("parse-video-py source: pinned GitHub tag v0.0.3 / commit prefix 2d94221")
           print("installed mcp version:", version("mcp"))
           assert version("fastapi-mcp") == "0.4.0"
+          assert version("mcp") == "1.12.1", "fastapi-mcp 0.4.0 must use its upstream-locked MCP SDK 1.12.1"
           assert version("parse-video-py") == "0.0.3"
           assert FastApiMCP and parse_video_py
+
+          # Real compatibility probe: this is the exact constructor/mount path that
+          # failed in the frozen runtime when pip selected a newer MCP SDK.
+          probe_app = FastAPI(title="F2Media MCP compatibility probe")
+          @probe_app.get("/probe", operation_id="mcp_probe")
+          def _probe():
+              return {"ok": True}
+          probe_mcp = FastApiMCP(
+              probe_app,
+              name="F2Media MCP compatibility probe",
+              description="CI constructor compatibility probe",
+              include_operations=["mcp_probe"],
+          )
+          probe_router = APIRouter()
+          probe_mcp.mount_http(router=probe_router, mount_path="/mcp")
+          assert any(getattr(route, "path", None) == "/mcp" for route in probe_router.routes)
+          print("FastApiMCP 0.4.0 + mcp 1.12.1 constructor/mount_http probe: OK")
           PY
             python -m pip freeze > build-logs/pip-freeze.txt
           } 2>&1 | tee build-logs/install.log
