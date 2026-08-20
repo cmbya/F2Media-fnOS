@@ -6,7 +6,7 @@ on:
       version:
         description: "F2Media 版本（X.Y.Z）"
         required: true
-        default: "0.1.9"
+        default: "0.1.10"
         type: string
 
 permissions:
@@ -88,20 +88,15 @@ jobs:
             python - <<'PY'
           from importlib.metadata import version
           import f2media
-          import qrcode
           import parse_video_py
           from fastapi_mcp import FastApiMCP
           from PIL import Image
           print("installed f2media version:", f2media.__version__)
-          print("installed f2 version:", version("f2"))
-          print("installed qrcode version:", version("qrcode"))
           print("installed Pillow version:", version("Pillow"))
           print("installed fastapi-mcp version:", version("fastapi-mcp"))
           print("installed parse-video-py version:", version("parse-video-py"))
           print("parse-video-py source: pinned GitHub tag v0.0.3 / commit prefix 2d94221")
           print("installed mcp version:", version("mcp"))
-          assert version("f2") == "0.0.1.7"
-          assert version("qrcode") == "8.0", "F2 0.0.1.7 must resolve qrcode 8.0"
           assert version("fastapi-mcp") == "0.4.0"
           assert version("parse-video-py") == "0.0.3"
           assert FastApiMCP and parse_video_py
@@ -187,20 +182,70 @@ jobs:
               scripts/runtime_entry.py
             mv dist/f2media-runtime build/runtime/
 
-            rm -rf build/f2 dist
-            pyinstaller --noconfirm --clean --onedir --name f2 \
-              --collect-all f2 --collect-all cryptography --collect-all lz4 \
-              --collect-all qrcode --collect-all PIL \
-              --hidden-import _cffi_backend --copy-metadata f2 \
-              scripts/engine_f2_entry.py
-            mv dist/f2 build/engines/
-
             rm -rf build/gallery-dl dist
             pyinstaller --noconfirm --clean --onedir --name gallery-dl \
               --collect-all gallery_dl --copy-metadata gallery-dl \
               scripts/engine_gallerydl_entry.py
             mv dist/gallery-dl build/engines/
           } 2>&1 | tee build-logs/pyinstaller.log
+
+      - name: Build isolated F2 0.0.1.7 sidecar
+        run: |
+          set -euo pipefail
+          {
+            rm -rf build/venv-f2 build/f2-pyi dist build/engines/f2
+            python -m venv build/venv-f2
+            build/venv-f2/bin/python -m pip install --upgrade pip
+            build/venv-f2/bin/python -m pip install "pyinstaller==6.22.2" "f2==0.0.1.7" "Pillow>=10,<13"
+            build/venv-f2/bin/python -m pip check
+
+            echo "===== F2 isolated dependency probe ====="
+            build/venv-f2/bin/python - <<'PY'
+          from importlib.metadata import version
+          import execjs
+          import qrcode
+          import PIL
+          import f2.apps.douyin.cli
+          import f2.apps.tiktok.cli
+          import f2.apps.twitter.cli
+          print("f2=", version("f2"))
+          print("PyExecJS=", version("PyExecJS"))
+          print("qrcode=", version("qrcode"))
+          print("Pillow=", version("Pillow"))
+          print("execjs=", execjs.__file__)
+          assert version("f2") == "0.0.1.7"
+          assert version("PyExecJS") == "1.5.1"
+          assert version("qrcode") == "8.0"
+          PY
+
+            build/venv-f2/bin/python -m pip freeze > build-logs/f2-pip-freeze.txt
+
+            # F2 uses dynamic app loading and several external helper packages.  The
+            # frozen sidecar therefore collects the full runtime dependency surface
+            # instead of relying on PyInstaller to infer every dynamically reached import.
+            build/venv-f2/bin/pyinstaller --noconfirm --clean --onedir \
+              --name f2 \
+              --collect-all f2 \
+              --collect-all execjs --copy-metadata PyExecJS \
+              --collect-all qrcode --collect-all PIL \
+              --collect-all gmssl --collect-all cryptography \
+              --collect-all browser_cookie3 \
+              --collect-all websockets --collect-all websockets_proxy \
+              --collect-all m3u8 --collect-all jsonpath_ng \
+              --collect-all importlib_resources \
+              --collect-all aiofiles --collect-all aiosqlite \
+              --collect-all pydantic --collect-all httpx \
+              --collect-all rich --collect-all click --collect-all babel \
+              --collect-all yaml --collect-all google.protobuf \
+              --hidden-import _cffi_backend --copy-metadata f2 \
+              --distpath dist --workpath build/f2-pyi \
+              scripts/engine_f2_entry.py
+            mv dist/f2 build/engines/
+
+            echo "===== Frozen F2 selfcheck ====="
+            build/engines/f2/f2 --selfcheck
+            build/engines/f2/f2 --version
+          } 2>&1 | tee build-logs/f2-sidecar.log
 
       - name: Build pinned Kuaishou and Xiaohongshu sidecars
         run: |
@@ -357,6 +402,13 @@ jobs:
           RUNTIME_LOG="$TMPROOT/runtime.log"
           F2MEDIA_DATA_DIR="$TMPROOT/data" \
           F2MEDIA_DOWNLOAD_DIR="$TMPROOT/downloads" \
+          F2MEDIA_F2_BIN="$PWD/build/engines/f2/f2" \
+          F2MEDIA_GALLERYDL_BIN="$PWD/build/engines/gallery-dl/gallery-dl" \
+          F2MEDIA_KS_BIN="$PWD/build/engines/ks-downloader/ks-downloader" \
+          F2MEDIA_XHS_BIN="$PWD/build/engines/xhs-downloader/xhs-downloader" \
+          F2MEDIA_YTDLP_BIN="$PWD/build/bin/yt-dlp" \
+          F2MEDIA_DENO_BIN="$PWD/build/bin/deno" \
+          F2MEDIA_FFMPEG_DIR="$PWD/build/bin" \
           F2MEDIA_API_KEY="ci-test-api-key" \
           F2MEDIA_PORT=18083 \
             build/runtime/f2media-runtime/f2media-runtime >"$RUNTIME_LOG" 2>&1 &
@@ -485,5 +537,5 @@ jobs:
           else
             gh release create "$TAG" dist/*.fpk dist/SHA256SUMS.txt \
               --title "F2Media ${VERSION} fnOS x86" \
-              --notes "使用飞牛官方 fnpack 1.2.3 构建的 F2Media fnOS x86 原生包。0.1.8 修复 parse-video-py 源码安装与 XHS FastMCP 延迟导入；保留先解析后下载、WebUI 用户名密码、独立 API Key、Streamable HTTP MCP 与 iPhone 快捷指令 NAS 下载接口，并修复 XHS FastMCP metadata 打包。内置 F2、KS-Downloader、XHS-Downloader、parse-video-py、gallery-dl、yt-dlp nightly、Deno 与 FFmpeg；已执行单元测试、MCP/API 认证运行时门禁、GLIBC 检查、官方 fnpack 校验和 FPK 反向解包校验。"
+              --notes "使用飞牛官方 fnpack 1.2.3 构建的 F2Media fnOS x86 原生包。0.1.10 将 F2 0.0.1.7 改为隔离 venv sidecar，并完整收集 PyExecJS/execjs 等运行依赖；保留先解析后下载、WebUI 用户名密码、独立 API Key、Streamable HTTP MCP 与 iPhone 快捷指令 NAS 下载接口，并修复 XHS FastMCP metadata 打包。内置 F2、KS-Downloader、XHS-Downloader、parse-video-py、gallery-dl、yt-dlp nightly、Deno 与 FFmpeg；已执行单元测试、MCP/API 认证运行时门禁、GLIBC 检查、官方 fnpack 校验和 FPK 反向解包校验。"
           fi
