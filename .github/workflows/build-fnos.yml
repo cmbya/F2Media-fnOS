@@ -6,7 +6,7 @@ on:
       version:
         description: "F2Media 版本（X.Y.Z）"
         required: true
-        default: "0.1.7"
+        default: "0.1.8"
         type: string
 
 permissions:
@@ -45,6 +45,26 @@ jobs:
             ldd --version 2>&1 | sed -n '1p' || true
           } | tee build-logs/environment.log
 
+      - name: Fetch pinned parse-video-py v0.0.3 source
+        run: |
+          set -euo pipefail
+          mkdir -p build-logs build/vendor
+          {
+            rm -rf build/vendor/parse-video-py
+            git clone --depth 1 --branch v0.0.3 \
+              https://github.com/wujunwei928/parse-video-py.git \
+              build/vendor/parse-video-py
+            PARSE_COMMIT="$(git -C build/vendor/parse-video-py rev-parse HEAD)"
+            echo "parse-video-py commit=$PARSE_COMMIT"
+            case "$PARSE_COMMIT" in
+              2d94221*) ;;
+              *) echo "unexpected parse-video-py v0.0.3 commit: $PARSE_COMMIT" >&2; exit 1;;
+            esac
+            grep -q '^name = "parse-video-py"' build/vendor/parse-video-py/pyproject.toml
+            grep -q '^version = "0.0.3"' build/vendor/parse-video-py/pyproject.toml
+            printf '%s\n' "$PARSE_COMMIT" > build-logs/parse-video-py-commit.txt
+          } 2>&1 | tee build-logs/parse-video-py-fetch.log
+
       - name: Resolve build dependencies (dry-run gate)
         run: |
           set -euo pipefail
@@ -53,7 +73,8 @@ jobs:
             python -m pip install --upgrade pip
             python -m pip install --dry-run --ignore-installed \
               --report build-logs/pip-resolution.json \
-              -r requirements-build.txt
+              -r requirements-build.txt \
+              ./build/vendor/parse-video-py
           } 2>&1 | tee build-logs/pip-resolution.log
 
       - name: Install build dependencies
@@ -61,6 +82,7 @@ jobs:
           set -euo pipefail
           {
             python -m pip install -r requirements-build.txt
+            python -m pip install ./build/vendor/parse-video-py
             python -m pip install --no-deps .
             python -m pip check
             python - <<'PY'
@@ -76,6 +98,7 @@ jobs:
           print("installed Pillow version:", version("Pillow"))
           print("installed fastapi-mcp version:", version("fastapi-mcp"))
           print("installed parse-video-py version:", version("parse-video-py"))
+          print("parse-video-py source: pinned GitHub tag v0.0.3 / commit prefix 2d94221")
           print("installed mcp version:", version("mcp"))
           assert version("f2") == "0.0.1.7"
           assert version("qrcode") == "8.0", "F2 0.0.1.7 must resolve qrcode 8.0"
@@ -233,8 +256,22 @@ jobs:
           from .application import XHS
           __all__ = ["XHS"]
           PY
-            sed -i '/^from fastmcp import FastMCP$/d' build/vendor/xhs/source/application/app.py
+            python - <<'PY'
+          from pathlib import Path
+          path = Path("build/vendor/xhs/source/application/app.py")
+          text = path.read_text(encoding="utf-8")
+          top = "from fastmcp import FastMCP\n"
+          if top not in text:
+              raise SystemExit("XHS 2.7 FastMCP top-level import signature changed")
+          text = text.replace(top, "", 1)
+          needle = "        mcp = FastMCP(\n"
+          if needle not in text:
+              raise SystemExit("XHS 2.7 run_mcp_server FastMCP call signature changed")
+          text = text.replace(needle, "        from fastmcp import FastMCP\n\n" + needle, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
             ! grep -q '^from fastmcp import FastMCP$' build/vendor/xhs/source/application/app.py
+            grep -q '^[[:space:]]*from fastmcp import FastMCP$' build/vendor/xhs/source/application/app.py
             ! grep -qiE '^[[:space:]]*fastmcp([<>=!~ ].*)?$' build/vendor/xhs/requirements-f2media.txt
 
             build/venv-xhs/bin/python -m pip install -r build/vendor/xhs/requirements-f2media.txt
@@ -443,5 +480,5 @@ jobs:
           else
             gh release create "$TAG" dist/*.fpk dist/SHA256SUMS.txt \
               --title "F2Media ${VERSION} fnOS x86" \
-              --notes "使用飞牛官方 fnpack 1.2.3 构建的 F2Media fnOS x86 原生包。0.1.7 新增先解析后下载、WebUI 用户名密码、独立 API Key、Streamable HTTP MCP 与 iPhone 快捷指令 NAS 下载接口，并修复 XHS FastMCP metadata 打包。内置 F2、KS-Downloader、XHS-Downloader、parse-video-py、gallery-dl、yt-dlp nightly、Deno 与 FFmpeg；已执行单元测试、MCP/API 认证运行时门禁、GLIBC 检查、官方 fnpack 校验和 FPK 反向解包校验。"
+              --notes "使用飞牛官方 fnpack 1.2.3 构建的 F2Media fnOS x86 原生包。0.1.8 修复 parse-video-py 源码安装与 XHS FastMCP 延迟导入；保留先解析后下载、WebUI 用户名密码、独立 API Key、Streamable HTTP MCP 与 iPhone 快捷指令 NAS 下载接口，并修复 XHS FastMCP metadata 打包。内置 F2、KS-Downloader、XHS-Downloader、parse-video-py、gallery-dl、yt-dlp nightly、Deno 与 FFmpeg；已执行单元测试、MCP/API 认证运行时门禁、GLIBC 检查、官方 fnpack 校验和 FPK 反向解包校验。"
           fi
