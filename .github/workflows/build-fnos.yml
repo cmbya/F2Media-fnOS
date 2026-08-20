@@ -1,244 +1,112 @@
-name: Build F2Media fnOS x86
+name: Apply F2Media v0.2.3 Facebook Fix
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: "F2Media 版本（X.Y.Z）"
-        required: true
-        default: "0.2.2"
-        type: string
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 70
-    env:
-      VERSION: ${{ inputs.version }}
-      FNPACK_VERSION: "1.2.3"
-      FNPACK_LINUX_AMD64_SHA256: "54b97fa7b70968c4d05c79840f5daeff508957d0bb2062fdb0376d00d9615c93"
-      XCLI_VERSION: "v0.5.0"
-      FBCLI_VERSION: "v0.3.0"
-
+  patch:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Set up Python 3.12
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.x"
-          cache: false
-
-      - name: Prepare version and diagnostics
-        run: |
-          set -euo pipefail
-          mkdir -p build-logs build/tools build/vendor
-          # GitHub Web 上传/ZIP 解压可能丢失 executable bit；在 CI 内统一恢复。
-          chmod +x scripts/*.sh fnos/start-f2media fnos/cmd/*
-          python scripts/set_version.py "$VERSION" | tee build-logs/version.log
-          {
-            date -u +%Y-%m-%dT%H:%M:%SZ
-            uname -a
-            python --version
-            ldd --version 2>&1 | sed -n '1p' || true
-          } | tee build-logs/environment.log
-
-      - name: Fetch douyin_parse v2.0.3 core
-        run: |
-          set -euo pipefail
-          rm -rf build/vendor/douyin_parse
-          git clone --depth 1 --branch v2.0.3 https://github.com/DLWangSan/douyin_parse.git build/vendor/douyin_parse
-          test -f build/vendor/douyin_parse/douyin_video_parser.py
-          test -f build/vendor/douyin_parse/abogus.py
-          test -f build/vendor/douyin_parse/xbogus.py
-          git -C build/vendor/douyin_parse rev-parse HEAD | tee build-logs/douyin-parse-commit.txt
-
-      - name: Fetch x-cli and facebook-cli sources
-        run: |
-          set -euo pipefail
-          rm -rf build/vendor/x-cli build/vendor/facebook-cli
-          git clone --depth 1 --branch "$XCLI_VERSION" --recurse-submodules https://github.com/tamnd/x-cli.git build/vendor/x-cli
-          git clone --depth 1 --branch "$FBCLI_VERSION" --recurse-submodules https://github.com/tamnd/facebook-cli.git build/vendor/facebook-cli
-          git -C build/vendor/x-cli rev-parse HEAD | tee build-logs/x-cli-commit.txt
-          git -C build/vendor/facebook-cli rev-parse HEAD | tee build-logs/facebook-cli-commit.txt
-
-      - name: Install build dependencies
+      - name: Install test dependencies
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -r requirements-build.txt
-          python -m pip install --no-deps .
-          python -m pip check
-          python - <<'PY'
-          from importlib.metadata import version
-          from fastapi import APIRouter, FastAPI
-          from fastapi_mcp import FastApiMCP
-          assert version("fastapi-mcp") == "0.4.0"
-          assert version("mcp") == "1.12.1"
-          app = FastAPI()
-          @app.get('/probe', operation_id='mcp_probe')
-          def probe(): return {'ok': True}
-          m = FastApiMCP(app, name='probe', description='probe', include_operations=['mcp_probe'])
-          router = APIRouter()
-          m.mount_http(router=router, mount_path='/mcp')
-          assert any(getattr(r, 'path', None) == '/mcp' for r in router.routes)
-          print('FastApiMCP compatibility probe OK')
-          PY
-          python -m pip freeze > build-logs/pip-freeze.txt
+          pip install -r requirements-build.txt
+          pip install -e .
 
-      - name: Unit tests and repository self-check
+      - name: Apply Facebook v0.2.3 source fix
         run: |
           set -euo pipefail
-          python -m pytest -q
-          python -m compileall -q f2media scripts
-          python scripts/selfcheck.py
+          python scripts/apply_v023_facebook_fix.py
+          python scripts/set_version.py 0.2.3
+
+      - name: Static and unit checks
+        run: |
+          set -euo pipefail
+          python -m compileall -q f2media scripts tests
+          pytest -q
           bash -n scripts/build_fpk.sh
-          for f in fnos/cmd/* fnos/start-f2media; do bash -n "$f"; done
+          bash -n scripts/build_install_probe.sh
+          bash -n fnos/start-f2media
+          for f in fnos/cmd/*; do [ -f "$f" ] && bash -n "$f"; done
 
-      - name: Install verified official fnpack 1.2.3
+      - name: Verify Facebook fix contracts
         run: |
           set -euo pipefail
-          curl --fail --location --silent --show-error \
-            "https://static2.fnnas.com/fnpack/fnpack-${FNPACK_VERSION}-linux-amd64" \
-            --output build/tools/fnpack
-          printf '%s  %s\n' "$FNPACK_LINUX_AMD64_SHA256" "build/tools/fnpack" | sha256sum --check
-          chmod 755 build/tools/fnpack
-          build/tools/fnpack --help | tee build-logs/fnpack-toolchain.log
-
-      - name: Build F2Media runtime and gallery-dl
-        run: |
-          set -euo pipefail
-          rm -rf build/runtime build/engines dist
-          mkdir -p build/runtime build/engines build/bin
-          pyinstaller --noconfirm --clean --onedir --name f2media-runtime \
-            --paths build/vendor/douyin_parse \
-            --add-data "f2media/static:f2media/static" \
-            --collect-all uvicorn --collect-all cryptography \
-            --collect-all fastapi_mcp --collect-all mcp \
-            --collect-all PIL --collect-all gmssl \
-            --hidden-import douyin_video_parser --hidden-import abogus --hidden-import xbogus \
-            --copy-metadata fastapi-mcp --copy-metadata mcp \
-            scripts/runtime_entry.py
-          mv dist/f2media-runtime build/runtime/
-          rm -rf dist
-          pyinstaller --noconfirm --clean --onedir --name gallery-dl \
-            --collect-all gallery_dl --copy-metadata gallery-dl \
-            scripts/engine_gallerydl_entry.py
-          mv dist/gallery-dl build/engines/
-
-      - name: Build x-cli and facebook-cli
-        run: |
-          set -euo pipefail
-          mkdir -p build/bin
-          (cd build/vendor/x-cli && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$GITHUB_WORKSPACE/build/bin/x-cli" ./cmd/x)
-          (cd build/vendor/facebook-cli && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$GITHUB_WORKSPACE/build/bin/facebook-cli" ./cmd/fb)
-          chmod +x build/bin/x-cli build/bin/facebook-cli
-          (build/bin/x-cli version || build/bin/x-cli --version) | tee build-logs/x-cli-version.txt
-          (build/bin/facebook-cli version || build/bin/facebook-cli --version) | tee build-logs/facebook-cli-version.txt
-
-      - name: Download external binaries
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          python scripts/download_github_asset.py yt-dlp/yt-dlp-nightly-builds latest yt-dlp_linux build/bin/yt-dlp
-          chmod +x build/bin/yt-dlp
-          python scripts/download_github_asset.py denoland/deno v2.9.5 deno-x86_64-unknown-linux-gnu.zip /tmp/deno.zip
           python - <<'PY'
-          import zipfile
-          with zipfile.ZipFile('/tmp/deno.zip') as z: z.extract('deno', 'build/bin')
+          from pathlib import Path
+          from f2media.parsers.facebook_resolver import facebook_cli_target, facebook_cookie_credentials, normalize_known_facebook_url
+
+          assert facebook_cli_target("https://www.facebook.com/reel/2300217217408960") == ("reel", "2300217217408960")
+          assert normalize_known_facebook_url(
+              "https://www.facebook.com/groups/851882484849213?multi_permalinks=28938059365804815"
+          ) == "https://www.facebook.com/groups/851882484849213/posts/28938059365804815/"
+          ns = "# Netscape HTTP Cookie File\n.facebook.com\tTRUE\t/\tTRUE\t0\tc_user\t123\n.facebook.com\tTRUE\t/\tTRUE\t0\txs\tabc\n"
+          assert facebook_cookie_credentials(ns) == ("123", "abc")
+          text = Path("f2media/parse_service.py").read_text(encoding="utf-8")
+          assert '"auth", "import", "--c-user", c_user, "--xs", xs' in text
+          assert 'command, target = facebook_cli_target(item.url)' in text
+          print("Facebook v0.2.3 contract checks OK")
           PY
-          chmod +x build/bin/deno
-          python scripts/download_github_asset.py yt-dlp/FFmpeg-Builds latest ffmpeg-master-latest-linux64-gpl.tar.xz /tmp/ffmpeg.tar.xz
-          rm -rf /tmp/ffmpeg-extract && mkdir -p /tmp/ffmpeg-extract
-          tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg-extract
-          ROOT="$(find /tmp/ffmpeg-extract -mindepth 1 -maxdepth 1 -type d -print -quit)"
-          install -m755 "$ROOT/bin/ffmpeg" build/bin/ffmpeg
-          install -m755 "$ROOT/bin/ffprobe" build/bin/ffprobe
 
-      - name: fnOS Debian 12 glibc compatibility gate
+      - name: Prepare changed-files artifact
         run: |
           set -euo pipefail
-          python scripts/check_glibc.py --max 2.36 \
-            build/runtime/f2media-runtime build/engines/gallery-dl \
-            build/bin/yt-dlp build/bin/deno build/bin/ffmpeg build/bin/ffprobe \
-            build/bin/x-cli build/bin/facebook-cli \
-            2>&1 | tee build-logs/glibc.log
+          rm -rf build/v023-facebook-fix
+          mkdir -p build/v023-facebook-fix
+          while IFS= read -r f; do
+            case "$f" in
+              .github/workflows/apply-v023-facebook-fix.yml|scripts/apply_v023_facebook_fix.py) continue ;;
+            esac
+            [ -f "$f" ] || continue
+            mkdir -p "build/v023-facebook-fix/$(dirname "$f")"
+            cp "$f" "build/v023-facebook-fix/$f"
+          done < <(git diff --name-only)
+          (cd build/v023-facebook-fix && zip -qr ../F2Media-v0.2.3-facebook-fix-files.zip .)
+          unzip -t build/F2Media-v0.2.3-facebook-fix-files.zip
 
-      - name: Runtime API/MCP self-check
-        run: |
-          set -euo pipefail
-          TMPROOT="$(mktemp -d)"
-          F2MEDIA_DATA_DIR="$TMPROOT/data" \
-          F2MEDIA_DOWNLOAD_DIR="$TMPROOT/downloads" \
-          F2MEDIA_GALLERYDL_BIN="$PWD/build/engines/gallery-dl/gallery-dl" \
-          F2MEDIA_YTDLP_BIN="$PWD/build/bin/yt-dlp" \
-          F2MEDIA_DENO_BIN="$PWD/build/bin/deno" \
-          F2MEDIA_XCLI_BIN="$PWD/build/bin/x-cli" \
-          F2MEDIA_FBCLI_BIN="$PWD/build/bin/facebook-cli" \
-          F2MEDIA_FFMPEG_DIR="$PWD/build/bin" \
-          F2MEDIA_API_KEY="ci-test-api-key" F2MEDIA_PORT=18083 \
-            build/runtime/f2media-runtime/f2media-runtime >"$TMPROOT/runtime.log" 2>&1 &
-          PID=$!
-          trap 'kill "$PID" 2>/dev/null || true' EXIT
-          for i in $(seq 1 40); do
-            curl -fsS http://127.0.0.1:18083/api/health > "$TMPROOT/health.json" && break
-            sleep 0.5
-          done
-          python - "$TMPROOT/health.json" "$VERSION" <<'PY'
-          import json, sys
-          obj=json.load(open(sys.argv[1]))
-          assert obj['ok'] is True and obj['version']==sys.argv[2]
-          assert obj['mcp_enabled'] is True and obj['mcp_path']=='/mcp'
-          PY
-          code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18083/api/v1/tasks/nope || true)
-          test "$code" = 401
-          code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'X-API-Key: ci-test-api-key' http://127.0.0.1:18083/api/v1/tasks/nope || true)
-          test "$code" = 404
-          kill "$PID" 2>/dev/null || true
-          wait "$PID" 2>/dev/null || true
-          trap - EXIT
-          cat "$TMPROOT/runtime.log" | tee build-logs/runtime.log
-
-      - name: Build fnOS FPK
-        env:
-          FNPACK_BIN: ${{ github.workspace }}/build/tools/fnpack
-        run: |
-          set -euo pipefail
-          bash scripts/build_fpk.sh "$VERSION" "$FNPACK_BIN" | tee build-logs/fpk-build.log
-
-      - name: Upload build diagnostics
-        if: always()
+      - name: Upload changed-files artifact
         uses: actions/upload-artifact@v4
         with:
-          name: F2Media-${{ inputs.version }}-build-logs
-          path: build-logs
-          if-no-files-found: warn
-
-      - name: Upload FPK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: F2Media-${{ inputs.version }}-fnOS-x86
-          path: |
-            dist/*.fpk
-            dist/SHA256SUMS.txt
+          name: F2Media-v0.2.3-facebook-fix-files
+          path: build/F2Media-v0.2.3-facebook-fix-files.zip
           if-no-files-found: error
 
-      - name: Publish GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Remove temporary patch helpers
+        run: |
+          rm -f .github/workflows/apply-v023-facebook-fix.yml scripts/apply_v023_facebook_fix.py
+
+      - name: Commit fix back to repository
+        id: push
+        continue-on-error: true
         run: |
           set -euo pipefail
-          gh release create "v$VERSION" dist/*.fpk dist/SHA256SUMS.txt \
-            --title "F2Media v$VERSION" \
-            --notes "F2Media v$VERSION：九平台解析/下载架构重构；抖音优先 douyin_parse；short_videos 本地逻辑 + 可编辑免费 API + gallery-dl + yt-dlp；支持 REST/MCP、Cookie、日期/平台/标题目录、Live Photo 成对下载、任务管理，以及 平台解析路由可视化排序；新增 x-cli、facebook-cli 与 Facebook URL Resolver；gallery-dl/yt-dlp/x-cli/facebook-cli WebUI 在线更新与一键回滚。"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          git commit -m "fix: Facebook Reel, group session and share resolver (v0.2.3)"
+          git push
+
+      - name: Push result
+        run: |
+          if [ "${{ steps.push.outcome }}" = "success" ]; then
+            echo "Fix committed and pushed. Run the normal F2Media build workflow with version 0.2.3."
+          else
+            echo "Automatic push failed. Download the changed-files artifact from this run and upload those files manually."
+            exit 1
+          fi
