@@ -5,7 +5,7 @@ CURRENT_STAGE="bootstrap"
 trap 'rc=$?; echo "[FPK][ERROR] stage=${CURRENT_STAGE} line=${LINENO} rc=${rc} command=${BASH_COMMAND}" >&2; exit "$rc"' ERR
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${1:-0.2.0}"
+VERSION="${1:-0.2.2}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be X.Y.Z" >&2; exit 2; }
 
 FNPACK_BIN="${FNPACK_BIN:-${2:-}}"
@@ -55,9 +55,16 @@ install -m755 "$ROOT/build/bin/yt-dlp" "$PROJECT/app/bin/yt-dlp"
 install -m755 "$ROOT/build/bin/deno" "$PROJECT/app/bin/deno"
 install -m755 "$ROOT/build/bin/ffmpeg" "$PROJECT/app/bin/ffmpeg"
 install -m755 "$ROOT/build/bin/ffprobe" "$PROJECT/app/bin/ffprobe"
+install -m755 "$ROOT/build/bin/x-cli" "$PROJECT/app/bin/x-cli"
+install -m755 "$ROOT/build/bin/facebook-cli" "$PROJECT/app/bin/facebook-cli"
 install -m755 "$ROOT/fnos/start-f2media" "$PROJECT/app/bin/start-f2media"
 cp "$ROOT/LICENSE" "$PROJECT/app/LICENSE-F2MEDIA.txt"
 cp "$ROOT/THIRD_PARTY.md" "$PROJECT/app/THIRD_PARTY.md"
+mkdir -p "$PROJECT/app/third-party/x-cli" "$PROJECT/app/third-party/facebook-cli"
+for f in LICENSE NOTICE; do
+  [ -f "$ROOT/build/vendor/x-cli/$f" ] && cp "$ROOT/build/vendor/x-cli/$f" "$PROJECT/app/third-party/x-cli/$f"
+  [ -f "$ROOT/build/vendor/facebook-cli/$f" ] && cp "$ROOT/build/vendor/facebook-cli/$f" "$PROJECT/app/third-party/facebook-cli/$f"
+done
 cp "$ROOT/fnos/app/ui/config" "$PROJECT/app/ui/config"
 cp "$ROOT/fnos/ICON.PNG" "$PROJECT/app/ui/images/icon_64.png"
 cp "$ROOT/fnos/ICON_256.PNG" "$PROJECT/app/ui/images/icon_256.png"
@@ -199,6 +206,8 @@ CURRENT_STAGE="record build provenance"
   "$PROJECT/app/bin/yt-dlp" --version
   "$PROJECT/app/bin/deno" --version 2>&1 | sed -n '1p'
   "$PROJECT/app/engines/gallery-dl/gallery-dl" --version || true
+  "$PROJECT/app/bin/x-cli" version 2>/dev/null || "$PROJECT/app/bin/x-cli" --version 2>/dev/null || true
+  "$PROJECT/app/bin/facebook-cli" version 2>/dev/null || "$PROJECT/app/bin/facebook-cli" --version 2>/dev/null || true
 } > "$PROJECT/app/BUILD-MANIFEST.txt" 2>&1
 
 CURRENT_STAGE="official fnpack build"
@@ -258,7 +267,7 @@ INNER="$WORK/inner"
 mkdir -p "$INNER"
 tar -xf "$VERIFY/app.tgz" -C "$INNER"
 for f in \
-  "$INNER/bin/start-f2media" "$INNER/bin/ffmpeg" "$INNER/bin/ffprobe" "$INNER/bin/yt-dlp" "$INNER/bin/deno" \
+  "$INNER/bin/start-f2media" "$INNER/bin/ffmpeg" "$INNER/bin/ffprobe" "$INNER/bin/yt-dlp" "$INNER/bin/deno" "$INNER/bin/x-cli" "$INNER/bin/facebook-cli" \
   "$INNER/runtime/f2media-runtime/f2media-runtime" "$INNER/engines/gallery-dl/gallery-dl"; do
   test -x "$f" || { echo "missing executable in app.tgz: $f" >&2; exit 1; }
 done

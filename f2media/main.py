@@ -20,6 +20,7 @@ from .core.db import Database
 from .core.doctor import diagnostics, parser_diagnostics
 from .core.engine_update import EngineUpdater
 from .core.logging import TaskLog, setup_logging
+from .core.parser_routes import ParserRouteStore
 from .parse_service import ParseService
 from .parsers.free_api import FreeApiStore
 from .service import DownloadService
@@ -31,8 +32,9 @@ app_settings = AppSettingsStore(db, settings)
 cookies = CookieStore(db, settings.secret_key_path)
 auth_store = AuthStore(db, settings.secret_key_path)
 free_apis = FreeApiStore(db)
+routes = ParserRouteStore(db)
 engine_updater = EngineUpdater(settings.data_dir)
-parse_service = ParseService(settings, app_settings, cookies, db, free_apis, logger)
+parse_service = ParseService(settings, app_settings, cookies, db, free_apis, routes, logger)
 service = DownloadService(settings, app_settings, db, cookies, parse_service, logger)
 STATIC = Path(__file__).resolve().parent / "static"
 PLATFORMS = {"douyin", "tiktok", "twitter", "instagram", "facebook", "youtube", "bilibili", "kuaishou", "xiaohongshu"}
@@ -60,10 +62,12 @@ app = FastAPI(title="F2Media", version=__version__, lifespan=lifespan)
 
 class ParseRequest(BaseModel):
     text: str
+    parser: str | None = None
 
 
 class UrlRequest(BaseModel):
     url: str
+    parser: str | None = None
 
 
 class ParsedDownloadRequest(BaseModel):
@@ -112,6 +116,15 @@ class ParserApiRequest(BaseModel):
 class ParserApiTestRequest(BaseModel):
     platform: str
     url: str
+
+
+class ParserRouteItemRequest(BaseModel):
+    key: str
+    enabled: bool = True
+
+
+class ParserRouteRequest(BaseModel):
+    items: list[ParserRouteItemRequest]
 
 
 def _web_credentials(request: Request) -> tuple[str, str] | None:
@@ -239,15 +252,16 @@ def doctor():
         "settings": app_settings.snapshot(),
         "auth": {"web_configured": auth_store.web_configured(), "mcp_enabled": mcp is not None},
         "parsers": parser_diagnostics(),
-        "engines": [engine_updater.local_status("gallery-dl"), engine_updater.local_status("yt-dlp")],
+        "engines": [engine_updater.local_status(x) for x in ("gallery-dl", "yt-dlp", "x-cli", "facebook-cli")],
         "free_apis": free_apis.list(),
+        "parser_routes": routes.all(),
     }
 
 
 @web.post("/parse")
 async def parse_media_web(req: ParseRequest):
     try:
-        return await parse_service.parse_text(req.text)
+        return await parse_service.parse_text(req.text, parser=req.parser)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -387,9 +401,38 @@ async def test_parser_api(api_id: int, req: ParserApiTestRequest):
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
+@web.get("/parser-routes")
+def parser_routes():
+    return routes.all()
+
+
+@web.get("/parser-routes/{platform}")
+def parser_route(platform: str):
+    try:
+        return routes.get(platform)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@web.put("/parser-routes/{platform}")
+def save_parser_route(platform: str, req: ParserRouteRequest):
+    try:
+        return routes.save(platform, [x.model_dump() for x in req.items])
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@web.post("/parser-routes/{platform}/reset")
+def reset_parser_route(platform: str):
+    try:
+        return routes.reset(platform)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @web.get("/engines")
 def engine_status():
-    return [engine_updater.local_status("gallery-dl"), engine_updater.local_status("yt-dlp")]
+    return [engine_updater.local_status(x) for x in ("gallery-dl", "yt-dlp", "x-cli", "facebook-cli")]
 
 
 @web.post("/engines/{name}/check")
@@ -461,7 +504,7 @@ api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)], tags=
 async def parse_media_api(req: UrlRequest):
     """Parse one media URL on the NAS without downloading any media files."""
     try:
-        results = await parse_service.parse_text(req.url)
+        results = await parse_service.parse_text(req.url, parser=req.parser)
         return results[0] if len(results) == 1 else results
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

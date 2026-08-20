@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${1:-0.2.0}"
+VERSION="${1:-0.2.2}"
 FNPACK_BIN="${FNPACK_BIN:-${2:-}}"
 [ -x "$FNPACK_BIN" ] || { echo "FNPACK_BIN is required" >&2; exit 2; }
 WORK="$ROOT/.build/install-probe"

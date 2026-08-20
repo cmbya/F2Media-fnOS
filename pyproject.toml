@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "f2media-fnos"
-version = "0.2.0"
+version = "0.2.2"
 description = "fnOS multi-platform media parser and NAS downloader"
 requires-python = ">=3.12"
 license = "GPL-3.0-or-later"

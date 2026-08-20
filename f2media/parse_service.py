@@ -18,10 +18,13 @@ from .core.cookies import CookieStore
 from .core.db import Database
 from .core.engine import engine_command
 from .core.platforms import ParsedInput, parse_input
+from .core.parser_routes import ParserRouteStore
 from .core.redact import redact_text
 from .parsers.common import clean_url, looks_downloadable, media_kind, safe_title, unique_media
 from .parsers.douyin_parse import DouyinParseAdapter
 from .parsers.free_api import FreeApiStore
+from .parsers.facebook_resolver import resolve_facebook_url
+from .parsers.social_cli import parse_cli_json, normalize_x_cli, normalize_facebook_cli
 from .parsers.short_videos import ShortVideosLocalParser
 
 GALLERY_PLATFORMS = {"instagram", "twitter", "facebook", "tiktok", "bilibili"}
@@ -42,6 +45,7 @@ class ParseService:
         cookies: CookieStore,
         db: Database,
         free_apis: FreeApiStore,
+        routes: ParserRouteStore,
         logger: logging.Logger,
     ):
         self.settings = settings
@@ -49,15 +53,26 @@ class ParseService:
         self.cookies = cookies
         self.db = db
         self.free_apis = free_apis
+        self.routes = routes
         self.logger = logger
         self.douyin = DouyinParseAdapter()
         self.short_videos = ShortVideosLocalParser()
 
-    async def parse_text(self, text: str, *, persist: bool = True) -> list[dict[str, Any]]:
-        return [await self.parse_item(item, source_text=text, persist=persist) for item in parse_input(text)]
+    async def parse_text(
+        self, text: str, *, persist: bool = True, parser: str | None = None
+    ) -> list[dict[str, Any]]:
+        return [
+            await self.parse_item(item, source_text=text, persist=persist, parser=parser)
+            for item in parse_input(text)
+        ]
 
     async def parse_item(
-        self, item: ParsedInput, *, source_text: str | None = None, persist: bool = True
+        self,
+        item: ParsedInput,
+        *,
+        source_text: str | None = None,
+        persist: bool = True,
+        parser: str | None = None,
     ) -> dict[str, Any]:
         if item.platform == "unknown":
             return {"ok": False, "platform": "unknown", "source_url": item.url, "attempts": [], "error": "无法识别平台"}
@@ -65,34 +80,54 @@ class ParseService:
         source_item = item
         item = self._normalize_routing_item(item)
         cookie, _ = self.cookies.get(item.platform)
+        cookie_header = cookie_header_for_engine(cookie)
+
+        # Facebook share wrappers are special.  This resolver is intentionally
+        # impossible to invoke for any non-Facebook platform.
+        if item.platform == "facebook":
+            resolved = await resolve_facebook_url(item.url, cookie_header)
+            if resolved != item.url:
+                self.logger.info("facebook url resolved source=%s canonical=%s", item.url, resolved)
+                item = ParsedInput(url=resolved, platform="facebook")
+
         attempts: list[dict[str, Any]] = []
         self.logger.info(
-            "parse start platform=%s url=%s cookie_configured=%s cookie_format=%s",
-            item.platform, source_item.url, bool(cookie), "netscape" if cookie and cookie.lstrip().startswith("# Netscape") else ("header" if cookie else "none"),
+            "parse start platform=%s url=%s cookie_configured=%s cookie_format=%s parser=%s",
+            item.platform, source_item.url, bool(cookie),
+            "netscape" if cookie and cookie.lstrip().startswith("# Netscape") else ("header" if cookie else "none"),
+            parser or "auto",
         )
         if item.url != source_item.url:
             self.logger.info("parse normalized platform=%s source=%s canonical=%s", item.platform, source_item.url, item.url)
 
-        pipeline: list[tuple[str, Any]] = []
-        if item.platform == "douyin":
-            pipeline.append(("douyin_parse", lambda: self.douyin.parse(item.url, cookie)))
-        if item.platform in ShortVideosLocalParser.SUPPORTED:
-            pipeline.append(("short_videos-local", lambda: self.short_videos.parse(item.platform, item.url, cookie)))
-        # User-defined/public API always comes before gallery-dl/yt-dlp.
-        pipeline.append(("free-api", lambda: self._free_api_probe(item)))
-        if item.platform in GALLERY_PLATFORMS:
-            pipeline.append(("gallery-dl", lambda: self._gallery_probe(item)))
-        if item.platform in YTDLP_PLATFORMS:
-            pipeline.append(("yt-dlp", lambda: self._ytdlp_probe(item)))
+        available = {x["key"] for x in self.routes.parser_options(item.platform)}
+        if parser:
+            if parser not in available:
+                return {
+                    "ok": False, "platform": item.platform, "source_url": source_item.url,
+                    "canonical_url": item.url, "attempts": [], "cookie_configured": bool(cookie),
+                    "error": f"指定解析器不存在: {parser}",
+                }
+            pipeline = [parser]
+        else:
+            pipeline = self.routes.enabled_keys(item.platform)
 
-        for parser_name, call in pipeline:
+        if not pipeline:
+            return {
+                "ok": False, "platform": item.platform, "source_url": source_item.url,
+                "canonical_url": item.url, "attempts": [], "cookie_configured": bool(cookie),
+                "error": "该平台没有启用任何解析器，请到 设置 → 平台解析路由 启用",
+            }
+
+        for parser_key in pipeline:
             try:
-                raw_result = await call()
+                raw_result = await self._call_parser(parser_key, item, cookie)
                 result = await self._strict_media_result(raw_result)
                 if not result.get("ok"):
                     raise RuntimeError("没有取得可下载媒体资源")
-                attempts.append({"parser": parser_name, "ok": True})
+                attempts.append({"parser": parser_key, "ok": True})
                 result["attempts"] = attempts
+                result["route_parser"] = parser_key
                 result["cookie_configured"] = bool(cookie)
                 result["title"] = safe_title(result.get("title"), self._fallback_title(source_item))
                 result["source_url"] = source_item.url
@@ -103,16 +138,16 @@ class ParseService:
                     result["parse_id"] = parse_id
                     self.db.put_parse_result(parse_id, source_text or source_item.url, result)
                 self.logger.info(
-                    "parse success platform=%s parser=%s type=%s videos=%s images=%s live=%s",
-                    item.platform, result.get("parser"), result.get("media_type"),
+                    "parse success platform=%s parser=%s route=%s type=%s videos=%s images=%s live=%s",
+                    item.platform, result.get("parser"), parser_key, result.get("media_type"),
                     result.get("counts", {}).get("videos"), result.get("counts", {}).get("images"),
                     result.get("counts", {}).get("live_photos"),
                 )
                 return result
             except Exception as exc:
                 error = redact_text(f"{type(exc).__name__}: {exc}")
-                attempts.append({"parser": parser_name, "ok": False, "error": error})
-                self.logger.info("parse fallback platform=%s parser=%s error=%s", item.platform, parser_name, error)
+                attempts.append({"parser": parser_key, "ok": False, "error": error})
+                self.logger.info("parse fallback platform=%s parser=%s error=%s", item.platform, parser_key, error)
 
         error = attempts[-1].get("error") if attempts else "没有可用解析器"
         self.logger.warning("parse failed platform=%s url=%s attempts=%s", item.platform, source_item.url, attempts)
@@ -126,11 +161,37 @@ class ParseService:
             "error": error or "所有解析器均失败",
         }
 
+    async def _call_parser(self, parser_key: str, item: ParsedInput, cookie: str | None) -> dict[str, Any]:
+        if parser_key == "douyin_parse":
+            if item.platform != "douyin":
+                raise RuntimeError("douyin_parse 不支持该平台")
+            return await self.douyin.parse(item.url, cookie)
+        if parser_key == "short_videos-local":
+            if item.platform not in ShortVideosLocalParser.SUPPORTED:
+                raise RuntimeError("short_videos 本地逻辑不支持该平台")
+            return await self.short_videos.parse(item.platform, item.url, cookie)
+        if parser_key == "x-cli":
+            if item.platform != "twitter":
+                raise RuntimeError("x-cli 只支持 X / Twitter")
+            return await self._xcli_probe(item)
+        if parser_key == "facebook-cli":
+            if item.platform != "facebook":
+                raise RuntimeError("facebook-cli 只支持 Facebook")
+            return await self._facebook_cli_probe(item)
+        if parser_key == "gallery-dl":
+            return await self._gallery_probe(item)
+        if parser_key == "yt-dlp":
+            return await self._ytdlp_probe(item)
+        if parser_key.startswith("free-api:"):
+            try:
+                api_id = int(parser_key.split(":", 1)[1])
+            except ValueError as exc:
+                raise RuntimeError("无效免费 API 路由") from exc
+            return await self.free_apis.call_by_id(api_id, item.platform, item.url)
+        raise RuntimeError(f"未知解析器: {parser_key}")
+
     @staticmethod
     def _normalize_routing_item(item: ParsedInput) -> ParsedInput:
-        # Douyin desktop shares can point at /user/<sec_uid>?modal_id=<aweme_id>.
-        # The modal_id is the actual work id; normalize it before every parser so
-        # dedicated/local/free/yt-dlp adapters all see a normal work URL.
         if item.platform == "douyin":
             try:
                 parsed = urlparse(item.url)
@@ -141,9 +202,36 @@ class ParseService:
                 return ParsedInput(url=f"https://www.douyin.com/video/{modal_id}", platform=item.platform)
         return item
 
-    async def _free_api_probe(self, item: ParsedInput) -> dict[str, Any]:
-        result, config = await self.free_apis.parse(item.platform, item.url)
-        result["free_api_id"] = config.get("id")
+    async def _xcli_probe(self, item: ParsedInput) -> dict[str, Any]:
+        prefix = engine_command("x-cli")
+        if not prefix:
+            raise RuntimeError("x-cli 不可用")
+        state = self.settings.data_dir / "engine-state" / "twitter" / "x-cli"
+        rc, out, err = await self._capture([*prefix, "media", item.url, "-o", "json"], state_dir=state, timeout=75)
+        if rc != 0:
+            raise RuntimeError(redact_text(err.strip()[-1800:] or out.strip()[-800:] or f"x-cli exit={rc}"))
+        payload = parse_cli_json(out)
+        if payload is None:
+            raise RuntimeError("x-cli 没有返回 JSON 媒体数据")
+        result = normalize_x_cli(payload, item.url)
+        if not result.get("ok"):
+            raise RuntimeError("x-cli 没有返回可下载媒体 URL")
+        return result
+
+    async def _facebook_cli_probe(self, item: ParsedInput) -> dict[str, Any]:
+        prefix = engine_command("facebook-cli")
+        if not prefix:
+            raise RuntimeError("facebook-cli 不可用")
+        state = self.settings.data_dir / "engine-state" / "facebook" / "facebook-cli"
+        rc, out, err = await self._capture([*prefix, "post", item.url, "-o", "json"], state_dir=state, timeout=90)
+        if rc != 0:
+            raise RuntimeError(redact_text(err.strip()[-1800:] or out.strip()[-800:] or f"facebook-cli exit={rc}"))
+        payload = parse_cli_json(out)
+        if payload is None:
+            raise RuntimeError("facebook-cli 没有返回 JSON 帖子数据")
+        result = normalize_facebook_cli(payload, item.url)
+        if not result.get("ok"):
+            raise RuntimeError("facebook-cli 没有返回可下载媒体 URL")
         return result
 
     async def _capture(self, cmd: list[str], *, state_dir: Path, timeout: int = 60) -> tuple[int, str, str]:
@@ -152,6 +240,9 @@ class ParseService:
             "HOME": str(state_dir),
             "XDG_CACHE_HOME": str(state_dir / "cache"),
             "XDG_CONFIG_HOME": str(state_dir / "config"),
+            # facebook-cli documents FB_DATA_DIR as its only state-directory
+            # override. It is harmless for the other subprocess parsers.
+            "FB_DATA_DIR": str(state_dir),
         })
         for p in (state_dir, state_dir / "cache", state_dir / "config"):
             p.mkdir(parents=True, exist_ok=True)

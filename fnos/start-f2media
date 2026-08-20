@@ -47,6 +47,8 @@ export F2MEDIA_TASK_LOG_DIR="$VISIBLE_LOG_DIR/tasks"
 export F2MEDIA_PORT="$PORT"
 export F2MEDIA_GALLERYDL_BIN="$APP_DIR/engines/gallery-dl/gallery-dl"
 export F2MEDIA_YTDLP_BIN="$APP_DIR/bin/yt-dlp"
+export F2MEDIA_XCLI_BIN="$APP_DIR/bin/x-cli"
+export F2MEDIA_FBCLI_BIN="$APP_DIR/bin/facebook-cli"
 export FFMPEG_BINARY="$APP_DIR/bin/ffmpeg"
 export F2MEDIA_FFMPEG_DIR="$APP_DIR/bin"
 export F2MEDIA_DENO_BIN="$APP_DIR/bin/deno"
@@ -70,6 +72,8 @@ exec > >(tee -a "$VISIBLE_LOG_DIR/runtime-console.log") 2>&1
   "$APP_DIR/bin/yt-dlp" --version || true
   "$APP_DIR/bin/deno" --version 2>&1 | sed -n '1p' || true
   "$APP_DIR/engines/gallery-dl/gallery-dl" --version || true
+  "$APP_DIR/bin/x-cli" version 2>/dev/null || "$APP_DIR/bin/x-cli" --version 2>/dev/null || true
+  "$APP_DIR/bin/facebook-cli" version 2>/dev/null || "$APP_DIR/bin/facebook-cli" --version 2>/dev/null || true
   df -h "$DATA_DIR" "$DOWNLOAD_DIR" 2>/dev/null || true
   echo "============================================================"
 } >&2

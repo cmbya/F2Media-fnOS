@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from f2media.core.platforms import ParsedInput
 from f2media.parse_service import ParseService
 from f2media.parsers.common import looks_downloadable, normalize_external_result, safe_title
@@ -76,9 +74,11 @@ def test_filename_sanitizer_keeps_readable_unicode():
     assert safe_title('大海真蓝 / 你好?') == '大海真蓝 你好'
 
 
-def test_pipeline_order_is_locked():
-    src = Path('f2media/parse_service.py').read_text(encoding='utf-8')
-    assert src.index('("douyin_parse"') < src.index('("short_videos-local"')
-    assert src.index('("short_videos-local"') < src.index('("free-api"')
-    assert src.index('("free-api"') < src.index('("gallery-dl"')
-    assert src.index('("gallery-dl"') < src.index('("yt-dlp"')
+def test_pipeline_order_is_user_configurable():
+    # Parser order is no longer hard-coded in ParseService.  It is persisted per
+    # platform by ParserRouteStore and can be changed from the WebUI.
+    from f2media.core.parser_routes import DEFAULT_BUILTIN_ORDER
+
+    assert DEFAULT_BUILTIN_ORDER["twitter"][:3] == ["x-cli", "gallery-dl", "yt-dlp"]
+    assert DEFAULT_BUILTIN_ORDER["facebook"][:3] == ["facebook-cli", "gallery-dl", "yt-dlp"]
+    assert DEFAULT_BUILTIN_ORDER["douyin"][:2] == ["douyin_parse", "short_videos-local"]

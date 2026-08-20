@@ -1,5 +1,5 @@
 appname=f2media
-version=0.2.0
+version=0.2.2
 display_name=F2Media
 desc=多平台图片、视频、图集与实况媒体解析下载器
 source=thirdparty

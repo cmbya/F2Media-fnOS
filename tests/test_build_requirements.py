@@ -21,3 +21,6 @@ def test_new_parser_dependencies_are_present():
     assert 'requests>=2.32,<3' in req
     assert 'DLWangSan/douyin_parse.git' in workflow
     assert '--branch v2.0.3' in workflow
+    assert 'tamnd/x-cli.git' in workflow
+    assert 'tamnd/facebook-cli.git' in workflow
+    assert 'CGO_ENABLED=0 GOOS=linux GOARCH=amd64' in workflow

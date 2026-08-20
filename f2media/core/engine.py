@@ -7,9 +7,16 @@ from pathlib import Path
 ENV_NAMES = {
     "yt-dlp": "F2MEDIA_YTDLP_BIN",
     "gallery-dl": "F2MEDIA_GALLERYDL_BIN",
+    "x-cli": "F2MEDIA_XCLI_BIN",
+    "facebook-cli": "F2MEDIA_FBCLI_BIN",
 }
 
-BINARY_NAMES = {"yt-dlp": "yt-dlp", "gallery-dl": "gallery-dl"}
+BINARY_NAMES = {
+    "yt-dlp": "yt-dlp",
+    "gallery-dl": "gallery-dl",
+    "x-cli": "x-cli",
+    "facebook-cli": "facebook-cli",
+}
 
 
 def _override_path(name: str) -> Path | None:
@@ -27,7 +34,8 @@ def packaged_engine_path(name: str) -> str | None:
         value = os.getenv(env_name, "").strip()
         if value:
             return value
-    return shutil.which(name)
+    binary = BINARY_NAMES.get(name, name)
+    return shutil.which(binary)
 
 
 def engine_command(name: str) -> list[str] | None:

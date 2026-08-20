@@ -159,6 +159,24 @@ class FreeApiStore:
         self.db.delete_parser_api(api_id)
         self._cooldown_until.pop(api_id, None)
 
+    def get(self, api_id: int) -> dict[str, Any] | None:
+        return next((x for x in self.db.parser_apis(enabled_only=False) if int(x.get("id") or 0) == int(api_id)), None)
+
+    async def call_by_id(self, api_id: int, platform: str, source_url: str) -> dict[str, Any]:
+        config = self.get(api_id)
+        if not config:
+            raise RuntimeError("免费 API 配置不存在")
+        if not config.get("enabled"):
+            raise RuntimeError(f"免费 API 已停用: {config.get('name')}")
+        if self._cooling_down(config):
+            raise RuntimeError(f"{config.get('name')}: 429 冷却中")
+        try:
+            return await self.call(config, platform, source_url)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
+                self._start_cooldown(config)
+            raise
+
     @staticmethod
     def _source_matches(config: dict[str, Any], source_url: str) -> bool:
         # dyzy is a homepage endpoint. Do not waste a request on normal works or a
