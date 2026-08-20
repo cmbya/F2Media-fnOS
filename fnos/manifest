@@ -1,0 +1,13 @@
+appname=f2media
+version=0.1.9
+display_name=F2Media
+desc=F2 为主核心的多平台图片、视频、图集与实况媒体下载器
+source=thirdparty
+platform=x86
+maintainer=cmbya
+maintainer_url=https://github.com/cmbya
+ctl_stop=true
+service_port=18082
+checkport=false
+desktop_uidir=ui
+desktop_applaunchname=f2media.main

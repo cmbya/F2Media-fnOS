@@ -1,0 +1,5 @@
+{
+  "defaults": {"run-as": "package"},
+  "username": "f2media",
+  "groupname": "f2media"
+}
