@@ -1,0 +1,447 @@
+name: Build F2Media fnOS x86
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "F2Media 版本（X.Y.Z）"
+        required: true
+        default: "0.1.7"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 70
+    env:
+      VERSION: ${{ inputs.version }}
+      FNPACK_VERSION: "1.2.3"
+      FNPACK_LINUX_AMD64_SHA256: "54b97fa7b70968c4d05c79840f5daeff508957d0bb2062fdb0376d00d9615c93"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Prepare version and build diagnostics
+        run: |
+          set -euo pipefail
+          mkdir -p build-logs build/tools
+          python scripts/set_version.py "$VERSION" | tee build-logs/version.log
+          {
+            echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "runner_os=$RUNNER_OS"
+            uname -a
+            python --version
+            python -m pip --version
+            ldd --version 2>&1 | sed -n '1p' || true
+          } | tee build-logs/environment.log
+
+      - name: Resolve build dependencies (dry-run gate)
+        run: |
+          set -euo pipefail
+          mkdir -p build-logs
+          {
+            python -m pip install --upgrade pip
+            python -m pip install --dry-run --ignore-installed \
+              --report build-logs/pip-resolution.json \
+              -r requirements-build.txt
+          } 2>&1 | tee build-logs/pip-resolution.log
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          {
+            python -m pip install -r requirements-build.txt
+            python -m pip install --no-deps .
+            python -m pip check
+            python - <<'PY'
+          from importlib.metadata import version
+          import f2media
+          import qrcode
+          import parse_video_py
+          from fastapi_mcp import FastApiMCP
+          from PIL import Image
+          print("installed f2media version:", f2media.__version__)
+          print("installed f2 version:", version("f2"))
+          print("installed qrcode version:", version("qrcode"))
+          print("installed Pillow version:", version("Pillow"))
+          print("installed fastapi-mcp version:", version("fastapi-mcp"))
+          print("installed parse-video-py version:", version("parse-video-py"))
+          print("installed mcp version:", version("mcp"))
+          assert version("f2") == "0.0.1.7"
+          assert version("qrcode") == "8.0", "F2 0.0.1.7 must resolve qrcode 8.0"
+          assert version("fastapi-mcp") == "0.4.0"
+          assert version("parse-video-py") == "0.0.3"
+          assert FastApiMCP and parse_video_py
+          PY
+            python -m pip freeze > build-logs/pip-freeze.txt
+          } 2>&1 | tee build-logs/install.log
+
+      - name: Unit tests and repository self-check
+        run: |
+          set -euo pipefail
+          {
+            python -m pytest -q
+            python -m compileall -q f2media scripts
+            python scripts/selfcheck.py
+            bash -n scripts/build_fpk.sh
+            for f in fnos/cmd/* fnos/start-f2media; do bash -n "$f"; done
+            python - <<'PY'
+          import json
+          import os
+          import tomllib
+          from pathlib import Path
+          from PIL import Image
+
+          with open('pyproject.toml', 'rb') as fh:
+              project = tomllib.load(fh)
+          assert project['project']['version'] == os.environ['VERSION']
+          assert project['tool']['setuptools']['packages']['find']['include'] == ['f2media', 'f2media.*']
+
+          json.load(open('fnos/config/privilege', encoding='utf-8'))
+          resource = json.load(open('fnos/config/resource', encoding='utf-8'))
+          assert set(resource).issubset({'data-share', 'usr-local-linker', 'docker-project'})
+
+          ui = json.load(open('fnos/app/ui/config', encoding='utf-8'))
+          entry = ui['.url']['f2media.main']
+          assert entry['icon'] == 'images/icon_{0}.png'
+          assert str(entry['port']) == '18082'
+          assert entry['allUsers'] is True
+
+          # F2Media does not need an install/config wizard. Do not commit our own
+          # empty wizard files; build_fpk.sh will start from `fnpack create` and
+          # preserve the official template's wizard directory exactly.
+          assert not Path('fnos/wizard').exists(), 'source must not ship hand-made wizard files'
+
+          for path, size in [
+              ('fnos/ICON.PNG', (64, 64)),
+              ('fnos/ICON_256.PNG', (256, 256)),
+              ('fnos/app/ui/images/icon_64.png', (64, 64)),
+              ('fnos/app/ui/images/icon_256.png', (256, 256)),
+          ]:
+              with Image.open(path) as im:
+                  assert im.size == size, (path, im.size, size)
+          PY
+          } 2>&1 | tee build-logs/preflight.log
+
+      - name: Install verified official fnpack 1.2.3
+        run: |
+          set -euo pipefail
+          {
+            curl --fail --location --silent --show-error \
+              "https://static2.fnnas.com/fnpack/fnpack-${FNPACK_VERSION}-linux-amd64" \
+              --output build/tools/fnpack
+            printf '%s  %s\n' \
+              "$FNPACK_LINUX_AMD64_SHA256" \
+              "build/tools/fnpack" | sha256sum --check
+            chmod 755 build/tools/fnpack
+            echo "fnpack_sha256=$(sha256sum build/tools/fnpack | awk '{print $1}')"
+            echo "===== fnpack --help ====="
+            build/tools/fnpack --help
+          } 2>&1 | tee build-logs/fnpack-toolchain.log
+
+      - name: Build isolated Python runtimes
+        run: |
+          set -euo pipefail
+          {
+            rm -rf build/runtime build/engines build/bin dist
+            mkdir -p build/runtime build/engines build/bin
+
+            pyinstaller --noconfirm --clean --onedir --name f2media-runtime \
+              --add-data "f2media/static:f2media/static" \
+              --collect-all uvicorn --collect-all cryptography \
+              --collect-all fastapi_mcp --collect-all mcp --collect-all parse_video_py --collect-all fake_useragent \
+              --copy-metadata fastapi-mcp --copy-metadata mcp --copy-metadata parse-video-py \
+              scripts/runtime_entry.py
+            mv dist/f2media-runtime build/runtime/
+
+            rm -rf build/f2 dist
+            pyinstaller --noconfirm --clean --onedir --name f2 \
+              --collect-all f2 --collect-all cryptography --collect-all lz4 \
+              --collect-all qrcode --collect-all PIL \
+              --hidden-import _cffi_backend --copy-metadata f2 \
+              scripts/engine_f2_entry.py
+            mv dist/f2 build/engines/
+
+            rm -rf build/gallery-dl dist
+            pyinstaller --noconfirm --clean --onedir --name gallery-dl \
+              --collect-all gallery_dl --copy-metadata gallery-dl \
+              scripts/engine_gallerydl_entry.py
+            mv dist/gallery-dl build/engines/
+          } 2>&1 | tee build-logs/pyinstaller.log
+
+      - name: Build pinned Kuaishou and Xiaohongshu sidecars
+        run: |
+          set -euo pipefail
+          {
+            rm -rf build/vendor build/venv-ks build/venv-xhs
+            mkdir -p build/vendor
+
+            echo "===== KS-Downloader 1.6 ====="
+            git clone --depth 1 --branch 1.6 https://github.com/JoeanAmier/KS-Downloader.git build/vendor/ks
+            KS_COMMIT="$(git -C build/vendor/ks rev-parse HEAD)"
+            echo "KS commit=$KS_COMMIT"
+            case "$KS_COMMIT" in f8d812d*) ;; *) echo "unexpected KS 1.6 commit: $KS_COMMIT" >&2; exit 1;; esac
+            python -m venv build/venv-ks
+            build/venv-ks/bin/python -m pip install --upgrade pip
+            build/venv-ks/bin/python -m pip install "pyinstaller==6.22.2"
+            if [ -f build/vendor/ks/requirements.txt ]; then
+              build/venv-ks/bin/python -m pip install -r build/vendor/ks/requirements.txt
+            else
+              build/venv-ks/bin/python -m pip install -e build/vendor/ks
+            fi
+            rm -rf dist build/ks-pyi
+            build/venv-ks/bin/pyinstaller --noconfirm --clean --onedir \
+              --name ks-downloader \
+              --paths build/vendor/ks \
+              --collect-all source \
+              --distpath dist --workpath build/ks-pyi \
+              scripts/engine_ks_entry.py
+            rm -rf build/engines/ks-downloader
+            mv dist/ks-downloader build/engines/
+            build/engines/ks-downloader/ks-downloader --selfcheck
+
+            echo "===== XHS-Downloader 2.7 ====="
+            git clone --depth 1 --branch 2.7 https://github.com/JoeanAmier/XHS-Downloader.git build/vendor/xhs
+            XHS_COMMIT="$(git -C build/vendor/xhs rev-parse HEAD)"
+            echo "XHS commit=$XHS_COMMIT"
+            case "$XHS_COMMIT" in afaf2fb*) ;; *) echo "unexpected XHS 2.7 commit: $XHS_COMMIT" >&2; exit 1;; esac
+            python -m venv build/venv-xhs
+            build/venv-xhs/bin/python -m pip install --upgrade pip
+            build/venv-xhs/bin/python -m pip install "pyinstaller==6.22.2"
+            # F2Media only uses XHS's programmatic XHS extractor/downloader API. Browser-cookie
+            # reading and XHS's own CLI/TUI/MCP server are intentionally not part of this sidecar:
+            # WebUI/MCP authentication and automation belong to F2Media itself.
+            grep -viE '^[[:space:]]*(rookiepy|fastmcp)([<>=!~ ].*)?$' \
+              build/vendor/xhs/requirements.txt > build/vendor/xhs/requirements-f2media.txt
+
+            # XHS 2.7 imports CLI/TUI from source/__init__.py and imports FastMCP at module import
+            # time in application/app.py even when run_mcp_server() is never used. That caused the
+            # frozen sidecar to fail with PackageNotFoundError: fastmcp-slim/fastmcp. Reduce the
+            # vendored package to the API surface F2Media actually calls and make XHS's MCP import
+            # lazy/unreachable for our sidecar. F2Media's own Streamable HTTP MCP remains enabled.
+            cat > build/vendor/xhs/source/__init__.py <<'PY'
+          from .application import XHS
+          __all__ = ["XHS"]
+          PY
+            sed -i '/^from fastmcp import FastMCP$/d' build/vendor/xhs/source/application/app.py
+            ! grep -q '^from fastmcp import FastMCP$' build/vendor/xhs/source/application/app.py
+            ! grep -qiE '^[[:space:]]*fastmcp([<>=!~ ].*)?$' build/vendor/xhs/requirements-f2media.txt
+
+            build/venv-xhs/bin/python -m pip install -r build/vendor/xhs/requirements-f2media.txt
+            build/venv-xhs/bin/python -m pip check
+            echo "===== XHS reduced sidecar import check ====="
+            PYTHONPATH=build/vendor/xhs build/venv-xhs/bin/python - <<'PY'
+          import inspect
+          import source
+          from source import XHS
+          assert source.__all__ == ["XHS"]
+          sig = inspect.signature(XHS)
+          for name in ("work_path", "folder_name", "cookie", "image_download", "video_download", "live_download"):
+              assert name in sig.parameters, (name, sig)
+          print("XHS reduced API import OK:", sig)
+          PY
+
+            rm -rf dist build/xhs-pyi
+            build/venv-xhs/bin/pyinstaller --noconfirm --clean --onedir \
+              --name xhs-downloader \
+              --paths build/vendor/xhs \
+              --collect-all source \
+              --distpath dist --workpath build/xhs-pyi \
+              scripts/engine_xhs_entry.py
+            rm -rf build/engines/xhs-downloader
+            mv dist/xhs-downloader build/engines/
+            build/engines/xhs-downloader/xhs-downloader --selfcheck
+
+            printf 'KS-Downloader 1.6 %s\nXHS-Downloader 2.7 %s\n' "$KS_COMMIT" "$XHS_COMMIT" > build-logs/specialized-versions.txt
+          } 2>&1 | tee build-logs/specialized-sidecars.log
+
+      - name: Download verified external binaries
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          {
+            python scripts/download_github_asset.py \
+              yt-dlp/yt-dlp-nightly-builds latest yt-dlp_linux build/bin/yt-dlp
+            chmod +x build/bin/yt-dlp
+
+            python scripts/download_github_asset.py \
+              denoland/deno v2.9.5 deno-x86_64-unknown-linux-gnu.zip /tmp/deno.zip
+            python - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('/tmp/deno.zip') as archive:
+              archive.extract('deno', 'build/bin')
+          PY
+            chmod +x build/bin/deno
+
+            python scripts/download_github_asset.py \
+              yt-dlp/FFmpeg-Builds latest \
+              ffmpeg-master-latest-linux64-gpl.tar.xz /tmp/ffmpeg.tar.xz
+            rm -rf /tmp/ffmpeg-extract
+            mkdir -p /tmp/ffmpeg-extract
+            tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg-extract
+            FFMPEG_ROOT="$(find /tmp/ffmpeg-extract -mindepth 1 -maxdepth 1 -type d -print -quit)"
+            test -n "$FFMPEG_ROOT"
+            install -m755 "$FFMPEG_ROOT/bin/ffmpeg" build/bin/ffmpeg
+            install -m755 "$FFMPEG_ROOT/bin/ffprobe" build/bin/ffprobe
+          } 2>&1 | tee build-logs/downloads.log
+
+      - name: fnOS Debian 12 glibc compatibility gate
+        run: |
+          set -euo pipefail
+          python scripts/check_glibc.py --max 2.36 \
+            build/runtime/f2media-runtime \
+            build/engines/f2 \
+            build/engines/gallery-dl \
+            build/engines/ks-downloader \
+            build/engines/xhs-downloader \
+            build/bin/yt-dlp build/bin/deno build/bin/ffmpeg build/bin/ffprobe \
+            2>&1 | tee build-logs/glibc.log
+
+      - name: Runtime executable self-check
+        run: |
+          set -euo pipefail
+          TMPROOT="$(mktemp -d)"
+          RUNTIME_LOG="$TMPROOT/runtime.log"
+          F2MEDIA_DATA_DIR="$TMPROOT/data" \
+          F2MEDIA_DOWNLOAD_DIR="$TMPROOT/downloads" \
+          F2MEDIA_API_KEY="ci-test-api-key" \
+          F2MEDIA_PORT=18083 \
+            build/runtime/f2media-runtime/f2media-runtime >"$RUNTIME_LOG" 2>&1 &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true' EXIT
+
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18083/api/health > "$TMPROOT/health.json"; then
+              ok=1
+              break
+            fi
+            sleep 0.5
+          done
+          cat "$RUNTIME_LOG" | tee build-logs/runtime.log
+          if [ "$ok" -ne 1 ]; then
+            echo "runtime health check failed" | tee -a build-logs/runtime.log
+            exit 1
+          fi
+          python - "$TMPROOT/health.json" "$VERSION" <<'PY'
+          import json, sys
+          obj = json.load(open(sys.argv[1], encoding='utf-8'))
+          assert obj.get('ok') is True, obj
+          assert obj.get('version') == sys.argv[2], obj
+          assert obj.get('mcp_enabled') is True, obj
+          assert obj.get('mcp_path') == '/mcp', obj
+          print('health/version/MCP check OK:', obj)
+          PY
+
+          # REST endpoints used by Apple Shortcuts must reject missing keys, and accept
+          # the independent NAS API key without requiring WebUI Basic credentials.
+          code=$(curl -sS -o "$TMPROOT/no-key.json" -w '%{http_code}' \
+            http://127.0.0.1:18083/api/v1/tasks/does-not-exist || true)
+          test "$code" = "401" || { cat "$TMPROOT/no-key.json"; echo "expected 401 without API key, got $code"; exit 1; }
+          code=$(curl -sS -o "$TMPROOT/with-key.json" -w '%{http_code}' \
+            -H 'X-API-Key: ci-test-api-key' \
+            http://127.0.0.1:18083/api/v1/tasks/does-not-exist || true)
+          test "$code" = "404" || { cat "$TMPROOT/with-key.json"; echo "expected authenticated 404, got $code"; exit 1; }
+          echo "Shortcut API-key gate OK" | tee -a build-logs/runtime.log
+
+          # MCP itself uses the same independent API key. A request without a key must
+          # be rejected before the MCP transport handles it; the keyed request may return
+          # a protocol-level 4xx for this simple GET, but it must not be an auth 401.
+          code=$(curl -sS -o "$TMPROOT/mcp-no-key.txt" -w '%{http_code}' \
+            -H 'Accept: application/json, text/event-stream' \
+            http://127.0.0.1:18083/mcp || true)
+          test "$code" = "401" || { cat "$TMPROOT/mcp-no-key.txt"; echo "expected MCP 401 without API key, got $code"; exit 1; }
+          code=$(curl -sS -o "$TMPROOT/mcp-with-key.txt" -w '%{http_code}' \
+            -H 'Accept: application/json, text/event-stream' \
+            -H 'X-API-Key: ci-test-api-key' \
+            http://127.0.0.1:18083/mcp || true)
+          test "$code" != "401" || { cat "$TMPROOT/mcp-with-key.txt"; echo "MCP rejected valid API key"; exit 1; }
+          echo "MCP API-key gate OK (protocol status=$code)" | tee -a build-logs/runtime.log
+
+          kill "$PID" 2>/dev/null || true
+          wait "$PID" 2>/dev/null || true
+          trap - EXIT
+
+          {
+            build/engines/f2/f2 --selfcheck
+            build/engines/f2/f2 --version
+            build/engines/gallery-dl/gallery-dl --version
+            build/engines/ks-downloader/ks-downloader --selfcheck
+            build/engines/ks-downloader/ks-downloader --version
+            build/engines/xhs-downloader/xhs-downloader --selfcheck
+            build/engines/xhs-downloader/xhs-downloader --version
+            build/bin/yt-dlp --version
+            build/bin/deno --version
+            build/bin/ffmpeg -version 2>&1 | sed -n '1p'
+            build/bin/ffprobe -version 2>&1 | sed -n '1p'
+          } 2>&1 | tee -a build-logs/runtime.log
+
+      - name: Build with official fnpack and reverse-verify FPK
+        env:
+          FNPACK_BIN: ${{ github.workspace }}/build/tools/fnpack
+        run: |
+          set -euo pipefail
+          bash scripts/build_fpk.sh "$VERSION" 2>&1 | tee build-logs/fpk.log
+          tar -tf "dist/F2Media_${VERSION}_fnOS_x86.fpk" > build-logs/fpk-tree.txt
+          sha256sum "dist/F2Media_${VERSION}_fnOS_x86.fpk" | tee build-logs/fpk-sha256.txt
+
+      - name: Build minimal official-fnpack install probe
+        env:
+          FNPACK_BIN: ${{ github.workspace }}/build/tools/fnpack
+        run: |
+          set -euo pipefail
+          bash scripts/build_install_probe.sh "$VERSION" 2>&1 | tee build-logs/install-probe.log
+
+      - name: Upload minimal install probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: F2Media-install-probe-${{ inputs.version }}
+          path: |
+            probe-dist/*.fpk
+            probe-dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Upload FPK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: F2Media-fnOS-x86-${{ inputs.version }}
+          path: |
+            dist/*.fpk
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: F2Media-build-logs-${{ inputs.version }}
+          path: |
+            build-logs/**
+            *.spec
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.fpk dist/SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG" dist/*.fpk dist/SHA256SUMS.txt \
+              --title "F2Media ${VERSION} fnOS x86" \
+              --notes "使用飞牛官方 fnpack 1.2.3 构建的 F2Media fnOS x86 原生包。0.1.7 新增先解析后下载、WebUI 用户名密码、独立 API Key、Streamable HTTP MCP 与 iPhone 快捷指令 NAS 下载接口，并修复 XHS FastMCP metadata 打包。内置 F2、KS-Downloader、XHS-Downloader、parse-video-py、gallery-dl、yt-dlp nightly、Deno 与 FFmpeg；已执行单元测试、MCP/API 认证运行时门禁、GLIBC 检查、官方 fnpack 校验和 FPK 反向解包校验。"
+          fi
