@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DATA_DIR="${1:-${TRIM_PKGVAR:-$APP_DIR/data}}"
+mkdir -p "$DATA_DIR" "$DATA_DIR/logs" "$DATA_DIR/tmp"
+PORT="${F2MEDIA_PORT:-${TRIM_SERVICE_PORT:-18082}}"
+DOWNLOAD_DIR="${F2MEDIA_DOWNLOAD_DIR:-}"
+
+# Current fnOS contract: prefer the data-share paths supplied by the system.
+# Do not hard-code /volN paths or depend on share/shares spelling.
+if [ -z "$DOWNLOAD_DIR" ] && [ -n "${TRIM_DATA_SHARE_PATHS:-}" ]; then
+  old_ifs="$IFS"
+  IFS=':'
+  for candidate in $TRIM_DATA_SHARE_PATHS; do
+    [ -n "$candidate" ] || continue
+    if mkdir -p "$candidate" 2>/dev/null && touch "$candidate/.f2media-write-test" 2>/dev/null; then
+      rm -f "$candidate/.f2media-write-test"
+      DOWNLOAD_DIR="$candidate"
+      break
+    fi
+  done
+  IFS="$old_ifs"
+fi
+
+# Private fallback keeps the service diagnosable even when no share is exposed yet.
+if [ -z "$DOWNLOAD_DIR" ]; then
+  candidate="$DATA_DIR/downloads"
+  if mkdir -p "$candidate" 2>/dev/null && touch "$candidate/.f2media-write-test" 2>/dev/null; then
+    rm -f "$candidate/.f2media-write-test"
+    DOWNLOAD_DIR="$candidate"
+  fi
+fi
+
+if [ -z "$DOWNLOAD_DIR" ]; then
+  echo "ERROR: no writable download directory" >&2
+  exit 1
+fi
+
+export PATH="$APP_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+VISIBLE_LOG_DIR="$DOWNLOAD_DIR/F2Media-Logs"
+mkdir -p "$VISIBLE_LOG_DIR" "$VISIBLE_LOG_DIR/tasks"
+export F2MEDIA_DATA_DIR="$DATA_DIR"
+export F2MEDIA_DOWNLOAD_DIR="$DOWNLOAD_DIR"
+export F2MEDIA_LOG_DIR="$VISIBLE_LOG_DIR"
+export F2MEDIA_TASK_LOG_DIR="$VISIBLE_LOG_DIR/tasks"
+export F2MEDIA_PORT="$PORT"
+export F2MEDIA_F2_BIN="$APP_DIR/engines/f2/f2"
+export F2MEDIA_GALLERYDL_BIN="$APP_DIR/engines/gallery-dl/gallery-dl"
+export F2MEDIA_KS_BIN="$APP_DIR/engines/ks-downloader/ks-downloader"
+export F2MEDIA_XHS_BIN="$APP_DIR/engines/xhs-downloader/xhs-downloader"
+export F2MEDIA_YTDLP_BIN="$APP_DIR/bin/yt-dlp"
+export FFMPEG_BINARY="$APP_DIR/bin/ffmpeg"
+export F2MEDIA_FFMPEG_DIR="$APP_DIR/bin"
+export F2MEDIA_DENO_BIN="$APP_DIR/bin/deno"
+export PYTHONUNBUFFERED=1
+
+exec > >(tee -a "$VISIBLE_LOG_DIR/runtime-console.log") 2>&1
+{
+  echo "============================================================"
+  echo "$(date '+%Y-%m-%d %H:%M:%S %z') F2Media runtime diagnostics"
+  echo "uid=$(id -u 2>/dev/null || true) gid=$(id -g 2>/dev/null || true)"
+  echo "uname=$(uname -a)"
+  echo "libc=$(ldd --version 2>&1 | sed -n '1p' || true)"
+  echo "app=$APP_DIR"
+  echo "data=$DATA_DIR"
+  echo "downloads=$DOWNLOAD_DIR"
+  echo "trim_data_share_paths=${TRIM_DATA_SHARE_PATHS:-}"
+  echo "visible_logs=$VISIBLE_LOG_DIR"
+  echo "port=$PORT"
+  "$APP_DIR/bin/ffmpeg" -version 2>&1 | sed -n '1p' || true
+  "$APP_DIR/bin/ffprobe" -version 2>&1 | sed -n '1p' || true
+  "$APP_DIR/bin/yt-dlp" --version || true
+  "$APP_DIR/bin/deno" --version 2>&1 | sed -n '1p' || true
+  "$APP_DIR/engines/f2/f2" --selfcheck || true
+  "$APP_DIR/engines/f2/f2" --version || true
+  "$APP_DIR/engines/gallery-dl/gallery-dl" --version || true
+  "$APP_DIR/engines/ks-downloader/ks-downloader" --selfcheck || true
+  "$APP_DIR/engines/ks-downloader/ks-downloader" --version || true
+  "$APP_DIR/engines/xhs-downloader/xhs-downloader" --selfcheck || true
+  "$APP_DIR/engines/xhs-downloader/xhs-downloader" --version || true
+  df -h "$DATA_DIR" "$DOWNLOAD_DIR" 2>/dev/null || true
+  echo "============================================================"
+} >&2
+
+exec "$APP_DIR/runtime/f2media-runtime/f2media-runtime"
