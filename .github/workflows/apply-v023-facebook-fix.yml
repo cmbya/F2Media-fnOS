@@ -31,11 +31,10 @@ jobs:
       - name: Apply Facebook v0.2.3 source fix
         run: |
           set -euo pipefail
+          # Only patch Facebook source/tests here. Do NOT bump checked-in version:
+          # the normal Build F2Media workflow will run set_version.py with 0.2.3.
+          # This keeps test_version_sync consistent and avoids touching workflow files.
           python scripts/apply_v023_facebook_fix.py
-          python scripts/set_version.py 0.2.3
-          # GITHUB_TOKEN cannot create/update workflow files. Keep the normal
-          # build workflow unchanged; build 0.2.3 later by entering 0.2.3 manually.
-          git checkout -- .github/workflows/build-fnos.yml
 
       - name: Static and unit checks
         run: |
