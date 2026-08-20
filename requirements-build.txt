@@ -4,6 +4,7 @@ uvicorn[standard]>=0.30,<1
 cryptography>=43,<47
 httpx>=0.27,<1
 fastapi-mcp==0.4.0
+mcp==1.12.1  # exact SDK used by fastapi-mcp 0.4.0 upstream lock
 # Isolated build-only sidecars
 gallery-dl==1.32.9
 # Packaging / validation

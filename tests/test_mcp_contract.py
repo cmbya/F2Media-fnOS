@@ -17,3 +17,16 @@ def test_nas_api_and_mcp_contract_is_explicit():
     assert 'mount_path="/mcp"' in source
     assert 'dependencies=[Depends(require_api_key)]' in source
     assert 'headers=["authorization", "x-api-key"]' in source
+
+
+def test_fastapi_mcp_sdk_pair_is_pinned_and_runtime_probed():
+    requirements = Path('requirements-build.txt').read_text(encoding='utf-8')
+    pyproject = Path('pyproject.toml').read_text(encoding='utf-8')
+    workflow = Path('.github/workflows/build-fnos.yml').read_text(encoding='utf-8')
+    assert 'fastapi-mcp==0.4.0' in requirements
+    assert 'mcp==1.12.1' in requirements
+    assert '"fastapi-mcp==0.4.0"' in pyproject
+    assert '"mcp==1.12.1"' in pyproject
+    assert 'version("mcp") == "1.12.1"' in workflow
+    assert 'FastApiMCP 0.4.0 + mcp 1.12.1 constructor/mount_http probe: OK' in workflow
+    assert 'probe_mcp.mount_http(router=probe_router, mount_path="/mcp")' in workflow
