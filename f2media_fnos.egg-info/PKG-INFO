@@ -1,0 +1,20 @@
+Metadata-Version: 2.4
+Name: f2media-fnos
+Version: 0.1.7
+Summary: fnOS multi-platform media downloader with F2 as the primary engine
+License-Expression: GPL-3.0-or-later
+Requires-Python: >=3.12
+License-File: LICENSE
+Requires-Dist: fastapi<1,>=0.115
+Requires-Dist: uvicorn[standard]<1,>=0.30
+Requires-Dist: cryptography<47,>=43
+Requires-Dist: httpx<1,>=0.27
+Requires-Dist: fastapi-mcp==0.4.0
+Requires-Dist: parse-video-py==0.0.3
+Provides-Extra: engines
+Requires-Dist: f2==0.0.1.7; extra == "engines"
+Requires-Dist: gallery-dl==1.32.9; extra == "engines"
+Provides-Extra: dev
+Requires-Dist: pytest<10,>=8; extra == "dev"
+Requires-Dist: ruff>=0.8; extra == "dev"
+Dynamic: license-file
