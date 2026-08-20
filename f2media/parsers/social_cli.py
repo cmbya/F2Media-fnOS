@@ -78,6 +78,35 @@ def _quality_score(stream: dict[str, Any]) -> tuple[int, int, int, int]:
     return mp4, height, width, qnum
 
 
+def _x_variant_score(variant: dict[str, Any]) -> tuple[int, int]:
+    """Prefer direct MP4 variants, then the highest bitrate."""
+    url = _url(variant.get("url"))
+    content_type = str(variant.get("content_type") or variant.get("mime_type") or "").lower()
+    mp4 = 1 if ("mp4" in content_type or urlparse(url).path.lower().endswith(".mp4")) else 0
+    try:
+        bitrate = int(variant.get("bitrate") or variant.get("bit_rate") or 0)
+    except (TypeError, ValueError):
+        bitrate = 0
+    return mp4, bitrate
+
+
+def _best_x_variant(value: Any) -> str:
+    if not isinstance(value, list):
+        return ""
+    candidates: list[dict[str, Any]] = []
+    for row in value:
+        if not isinstance(row, dict) or not _url(row.get("url")):
+            continue
+        content_type = str(row.get("content_type") or row.get("mime_type") or "").lower()
+        # Skip HLS playlists when a direct MP4 variant is available.  If no MP4
+        # exists, the scoring still permits the best remaining URL as fallback.
+        candidates.append(row)
+    if not candidates:
+        return ""
+    best = max(candidates, key=_x_variant_score)
+    return _url(best.get("url"))
+
+
 def _facebook_stream_media(payload: Any) -> list[dict[str, Any]]:
     """Normalize facebook-cli Video.Streams into one best playable video.
 
@@ -132,7 +161,10 @@ def _typed_media(value: Any) -> list[dict[str, Any]]:
 
     kind = str(value.get("type") or value.get("media_type") or value.get("__typename") or "").lower()
     if any(token in kind for token in ("video", "animated_gif", "animatedgif", "gif", "reel")):
-        direct = _url(
+        # X/Twitter exposes videos as a variants list.  Keep the highest-bitrate
+        # direct MP4 and never turn preview_image into a downloadable image.
+        variant = _best_x_variant(value.get("variants") or value.get("video_variants"))
+        direct = variant or _url(
             value.get("video_url")
             or value.get("playable_url")
             or value.get("playable_url_quality_hd")
@@ -149,6 +181,7 @@ def _typed_media(value: Any) -> list[dict[str, Any]]:
                 "thumb_url", "image", "photo", "cover", "cover_url",
                 "url", "video_url", "playable_url", "playable_url_quality_hd",
                 "browser_native_hd_url", "browser_native_sd_url", "src", "streams",
+                "variants", "video_variants",
             }:
                 continue
             found.extend(_typed_media(child))
@@ -221,18 +254,19 @@ def _collect_urls(value: Any, path: tuple[str, ...] = ()) -> list[dict[str, Any]
     return found
 
 
-def _media_from_payload(payload: Any) -> list[dict[str, Any]]:
-    # facebook-cli's canonical Video schema gets first priority because it is
-    # unambiguous and prevents the Reel thumbnail from being mistaken for media.
-    streams = _facebook_stream_media(payload)
-    if streams:
-        return streams
+def _media_from_payload(payload: Any, *, facebook: bool = False) -> list[dict[str, Any]]:
+    # Only Facebook should interpret a generic `streams` key as facebook-cli's
+    # Video.Streams schema.  X/Twitter has its own typed `variants` schema.
+    if facebook:
+        streams = _facebook_stream_media(payload)
+        if streams:
+            return streams
     typed = unique_media(_typed_media(payload))
     return typed if typed else unique_media(_collect_urls(payload))
 
 
 def normalize_x_cli(payload: Any, source_url: str) -> dict[str, Any]:
-    media = _media_from_payload(payload)
+    media = _media_from_payload(payload, facebook=False)
     title = _first_string(payload, ("text", "full_text", "title", "description", "caption"))
     author = _first_string(payload, ("username", "screen_name", "name", "author_name"))
     images = sum(1 for x in media if x.get("type") == "image")
@@ -249,7 +283,7 @@ def normalize_x_cli(payload: Any, source_url: str) -> dict[str, Any]:
 
 
 def normalize_facebook_cli(payload: Any, source_url: str) -> dict[str, Any]:
-    media = _media_from_payload(payload)
+    media = _media_from_payload(payload, facebook=True)
     title = _first_string(payload, ("title", "description", "caption", "text", "message"))
     author = _first_string(payload, ("owner_name", "author_name", "username", "handle", "name"))
     images = sum(1 for x in media if x.get("type") == "image")
