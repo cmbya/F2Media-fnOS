@@ -35,6 +35,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build-logs build/tools build/vendor
+          # GitHub Web 上传/ZIP 解压可能丢失 executable bit；在 CI 内统一恢复。
+          chmod +x scripts/*.sh fnos/start-f2media fnos/cmd/*
           python scripts/set_version.py "$VERSION" | tee build-logs/version.log
           {
             date -u +%Y-%m-%dT%H:%M:%SZ
@@ -183,7 +185,7 @@ jobs:
           FNPACK_BIN: ${{ github.workspace }}/build/tools/fnpack
         run: |
           set -euo pipefail
-          scripts/build_fpk.sh "$VERSION" "$FNPACK_BIN" | tee build-logs/fpk-build.log
+          bash scripts/build_fpk.sh "$VERSION" "$FNPACK_BIN" | tee build-logs/fpk-build.log
 
       - name: Upload build diagnostics
         if: always()
