@@ -199,20 +199,35 @@ jobs:
             build/venv-f2/bin/python -m pip install "pyinstaller==6.22.2" "f2==0.0.1.7" "Pillow>=10,<13"
             build/venv-f2/bin/python -m pip check
 
-            echo "===== F2 isolated dependency probe ====="
+            echo "===== F2 isolated dependency probe (offline-safe) ====="
             build/venv-f2/bin/python - <<'PY'
+          from importlib import import_module
           from importlib.metadata import version
-          import execjs
-          import qrcode
-          import PIL
-          import f2.apps.douyin.cli
-          import f2.apps.tiktok.cli
-          import f2.apps.twitter.cli
+          from importlib.util import find_spec
+
+          offline_imports = (
+              "execjs", "qrcode", "PIL", "gmssl", "Cryptodome",
+              "browser_cookie3", "websockets", "websockets_proxy", "m3u8",
+              "jsonpath_ng", "importlib_resources", "aiofiles", "aiosqlite",
+              "pydantic", "httpx", "rich", "click", "babel", "yaml",
+              "google.protobuf",
+          )
+          for name in offline_imports:
+              module = import_module(name)
+              print("import OK:", name, getattr(module, "__file__", "<frozen>"))
+
+          # F2 0.0.1.7 performs real msToken requests while importing some
+          # Douyin/TikTok modules.  Build validation must stay offline: verify
+          # the CLI modules exist without executing their network-active code.
+          for name in ("f2.apps.douyin.cli", "f2.apps.tiktok.cli", "f2.apps.twitter.cli"):
+              spec = find_spec(name)
+              assert spec is not None, name
+              print("module present:", name, spec.origin)
+
           print("f2=", version("f2"))
           print("PyExecJS=", version("PyExecJS"))
           print("qrcode=", version("qrcode"))
           print("Pillow=", version("Pillow"))
-          print("execjs=", execjs.__file__)
           assert version("f2") == "0.0.1.7"
           assert version("PyExecJS") == "1.5.1"
           assert version("qrcode") == "8.0"
