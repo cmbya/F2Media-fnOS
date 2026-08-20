@@ -1,0 +1,14 @@
+# Main runtime
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+cryptography>=43,<47
+httpx>=0.27,<1
+fastapi-mcp==0.4.0
+parse-video-py==0.0.3
+# Isolated build-only sidecars
+f2==0.0.1.7
+gallery-dl==1.32.9
+# Packaging / validation
+Pillow>=10,<13
+pyinstaller==6.22.2
+pytest>=8,<10
