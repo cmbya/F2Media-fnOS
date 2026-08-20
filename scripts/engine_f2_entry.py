@@ -1,28 +1,77 @@
 #!/usr/bin/env python3
 """Standalone F2 sidecar entrypoint.
 
-F2 is isolated from F2Media's Web/MCP runtime.  ``--selfcheck`` deliberately
-imports PyExecJS and every module below the Douyin/TikTok/Twitter app packages.
-That makes GitHub Actions fail before an FPK is published if PyInstaller drops
-an external or dynamically reached dependency.
+F2 is isolated from F2Media's Web/MCP runtime.
+
+IMPORTANT: ``--selfcheck`` must be deterministic and offline.  F2 0.0.1.7 has
+import-time side effects in some Douyin/TikTok modules (notably real msToken
+generation), so importing the platform CLI trees during a build check can make
+a perfectly valid frozen binary fail merely because GitHub Actions cannot get a
+usable platform token.
+
+The self-check therefore verifies the external dependency surface explicitly
+and verifies that the three platform CLI modules are present via module specs,
+without importing those network-active modules.
 """
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import os
-import pkgutil
 import sys
 
 
-def _import_tree(package_name: str) -> None:
-    package = importlib.import_module(package_name)
-    print(f"import OK: {package_name}")
-    package_path = getattr(package, "__path__", None)
-    if package_path is None:
-        return
-    for info in pkgutil.walk_packages(package_path, package.__name__ + "."):
-        importlib.import_module(info.name)
-        print(f"import OK: {info.name}")
+# Import names that cover F2's non-stdlib runtime dependencies which have been
+# problematic or are dynamically reached by F2/PyInstaller.  These imports are
+# intentionally network-free.
+_OFFLINE_IMPORTS = (
+    "execjs",             # PyExecJS
+    "qrcode",
+    "PIL",
+    "gmssl",
+    "Cryptodome",        # pycryptodomex
+    "browser_cookie3",
+    "websockets",
+    "websockets_proxy",
+    "m3u8",
+    "jsonpath_ng",
+    "importlib_resources",
+    "aiofiles",
+    "aiosqlite",
+    "pydantic",
+    "httpx",
+    "rich",
+    "click",
+    "babel",
+    "yaml",
+    "google.protobuf",
+)
+
+_PLATFORM_CLI_MODULES = (
+    "f2.apps.douyin.cli",
+    "f2.apps.tiktok.cli",
+    "f2.apps.twitter.cli",
+)
+
+
+def _offline_selfcheck() -> None:
+    import f2
+
+    print(f"import OK: f2 ({getattr(f2, '__file__', '<frozen>')})")
+    for module_name in _OFFLINE_IMPORTS:
+        module = importlib.import_module(module_name)
+        print(f"import OK: {module_name} ({getattr(module, '__file__', '<frozen>')})")
+
+    # find_spec() verifies that PyInstaller included the platform CLI modules,
+    # but unlike importing them it does not execute cli.py/utils.py/model.py and
+    # therefore does not trigger F2's real-msToken network calls.
+    for module_name in _PLATFORM_CLI_MODULES:
+        spec = importlib.util.find_spec(module_name)
+        if spec is None:
+            raise RuntimeError(f"frozen F2 module missing: {module_name}")
+        print(f"module present: {module_name} origin={spec.origin}")
+
+    print("F2 sidecar offline dependency check OK")
 
 
 def main() -> None:
@@ -32,17 +81,7 @@ def main() -> None:
         return
 
     if sys.argv[1:] == ["--selfcheck"]:
-        # F2's Douyin webcast signature module imports ``execjs``. Import it
-        # explicitly so the frozen binary itself proves that PyExecJS survived.
-        import execjs
-        print(f"import OK: execjs ({execjs.__file__})")
-        for root in (
-            "f2.apps.douyin",
-            "f2.apps.tiktok",
-            "f2.apps.twitter",
-        ):
-            _import_tree(root)
-        print("F2 sidecar dependency tree OK")
+        _offline_selfcheck()
         return
 
     token = os.getenv("F2MEDIA_X_CSRF_TOKEN", "").strip()
