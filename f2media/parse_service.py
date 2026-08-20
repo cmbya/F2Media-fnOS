@@ -23,7 +23,7 @@ from .core.redact import redact_text
 from .parsers.common import clean_url, looks_downloadable, media_kind, safe_title, unique_media
 from .parsers.douyin_parse import DouyinParseAdapter
 from .parsers.free_api import FreeApiStore
-from .parsers.facebook_resolver import resolve_facebook_url
+from .parsers.facebook_resolver import facebook_cli_target, facebook_cookie_credentials, resolve_facebook_url
 from .parsers.social_cli import parse_cli_json, normalize_x_cli, normalize_facebook_cli
 from .parsers.short_videos import ShortVideosLocalParser
 
@@ -222,13 +222,47 @@ class ParseService:
         prefix = engine_command("facebook-cli")
         if not prefix:
             raise RuntimeError("facebook-cli 不可用")
+
+        # facebook-cli keeps its session/cache under FB_DATA_DIR, which _capture
+        # already points at this state directory. Import F2Media's existing
+        # Facebook cookies into that isolated session before reads that may need it.
         state = self.settings.data_dir / "engine-state" / "facebook" / "facebook-cli"
-        rc, out, err = await self._capture([*prefix, "post", item.url, "-o", "json"], state_dir=state, timeout=90)
+        state.mkdir(parents=True, exist_ok=True)
+        cookie, _ = self.cookies.get("facebook")
+        c_user, xs = facebook_cookie_credentials(cookie)
+        self.logger.info(
+            "facebook-cli session cookie_configured=%s c_user=%s xs=%s",
+            bool(cookie), bool(c_user), bool(xs),
+        )
+        if c_user and xs:
+            rc, out, err = await self._capture(
+                [*prefix, "auth", "import", "--c-user", c_user, "--xs", xs],
+                state_dir=state,
+                timeout=30,
+            )
+            if rc != 0:
+                detail = redact_text(err.strip()[-1200:] or out.strip()[-600:] or f"facebook-cli auth exit={rc}")
+                raise RuntimeError(f"facebook-cli Cookie 会话导入失败: {detail}")
+            self.logger.info("facebook-cli session import ok")
+
+        command, target = facebook_cli_target(item.url)
+        self.logger.info(
+            "facebook-cli target command=%s target_kind=%s",
+            command, "id" if command in {"reel", "video", "photo"} else "url",
+        )
+        rc, out, err = await self._capture(
+            [*prefix, command, target, "-o", "json"],
+            state_dir=state,
+            timeout=90,
+        )
         if rc != 0:
-            raise RuntimeError(redact_text(err.strip()[-1800:] or out.strip()[-800:] or f"facebook-cli exit={rc}"))
+            detail = redact_text(err.strip()[-1800:] or out.strip()[-800:] or f"facebook-cli exit={rc}")
+            if rc == 4 and not (c_user and xs):
+                detail += "；该内容需要 Facebook 登录会话，但当前 Cookie 缺少 c_user 或 xs"
+            raise RuntimeError(detail)
         payload = parse_cli_json(out)
         if payload is None:
-            raise RuntimeError("facebook-cli 没有返回 JSON 帖子数据")
+            raise RuntimeError("facebook-cli 没有返回 JSON 媒体数据")
         result = normalize_facebook_cli(payload, item.url)
         if not result.get("ok"):
             raise RuntimeError("facebook-cli 没有返回可下载媒体 URL")
