@@ -6,7 +6,7 @@
 
 抖音、快手、Instagram、X/Twitter、TikTok、小红书、YouTube、哔哩哔哩、Facebook；支持电脑链接和手机分享文本。目标内容包括视频、图片、图集；动态图片/Live Photo 在底层提供动态资源时同时保存静态与动态文件。
 
-## v0.1.9
+## v0.1.10
 
 - 修复 XHS-Downloader 2.7 `fastmcp-slim / fastmcp`：XHS sidecar 不再安装 XHS 自带 MCP 依赖，FastMCP 改为仅在上游 `run_mcp_server()` 内延迟导入；F2Media 自己负责 MCP。
 - WebUI 新增独立「解析」页：解析成功后展示平台、解析器、标题、作者、媒体类型、图片/视频数量、Live Photo 配对和媒体地址；解析阶段不写下载目录。
