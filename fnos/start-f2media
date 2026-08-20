@@ -45,10 +45,7 @@ export F2MEDIA_DOWNLOAD_DIR="$DOWNLOAD_DIR"
 export F2MEDIA_LOG_DIR="$VISIBLE_LOG_DIR"
 export F2MEDIA_TASK_LOG_DIR="$VISIBLE_LOG_DIR/tasks"
 export F2MEDIA_PORT="$PORT"
-export F2MEDIA_F2_BIN="$APP_DIR/engines/f2/f2"
 export F2MEDIA_GALLERYDL_BIN="$APP_DIR/engines/gallery-dl/gallery-dl"
-export F2MEDIA_KS_BIN="$APP_DIR/engines/ks-downloader/ks-downloader"
-export F2MEDIA_XHS_BIN="$APP_DIR/engines/xhs-downloader/xhs-downloader"
 export F2MEDIA_YTDLP_BIN="$APP_DIR/bin/yt-dlp"
 export FFMPEG_BINARY="$APP_DIR/bin/ffmpeg"
 export F2MEDIA_FFMPEG_DIR="$APP_DIR/bin"
@@ -72,13 +69,7 @@ exec > >(tee -a "$VISIBLE_LOG_DIR/runtime-console.log") 2>&1
   "$APP_DIR/bin/ffprobe" -version 2>&1 | sed -n '1p' || true
   "$APP_DIR/bin/yt-dlp" --version || true
   "$APP_DIR/bin/deno" --version 2>&1 | sed -n '1p' || true
-  "$APP_DIR/engines/f2/f2" --selfcheck || true
-  "$APP_DIR/engines/f2/f2" --version || true
   "$APP_DIR/engines/gallery-dl/gallery-dl" --version || true
-  "$APP_DIR/engines/ks-downloader/ks-downloader" --selfcheck || true
-  "$APP_DIR/engines/ks-downloader/ks-downloader" --version || true
-  "$APP_DIR/engines/xhs-downloader/xhs-downloader" --selfcheck || true
-  "$APP_DIR/engines/xhs-downloader/xhs-downloader" --version || true
   df -h "$DATA_DIR" "$DOWNLOAD_DIR" 2>/dev/null || true
   echo "============================================================"
 } >&2
