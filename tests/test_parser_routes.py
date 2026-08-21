@@ -23,7 +23,7 @@ def _seed(db: Database, name: str, platforms: list[str], priority: int = 50) -> 
 
 def test_all_nine_platforms_show_all_builtin_parsers(tmp_path):
     store = ParserRouteStore(_db(tmp_path))
-    expected = {"douyin_parse", "short_videos-local", "x-cli", "facebook-cli", "gallery-dl", "yt-dlp"}
+    expected = {"douyin_parse", "short_videos-local", "x-cli", "facebook-cli", "facebook-resolver", "gallery-dl", "yt-dlp"}
     assert set(PLATFORMS) == {"douyin", "kuaishou", "bilibili", "xiaohongshu", "instagram", "twitter", "youtube", "facebook", "tiktok"}
     for platform in PLATFORMS:
         keys = {x["key"] for x in store.get(platform)["items"] if x["kind"] == "builtin"}
@@ -78,4 +78,4 @@ def test_facebook_and_x_defaults_put_specialized_cli_first(tmp_path):
     _seed(db, "fb-api", ["facebook"], 10)
     store = ParserRouteStore(db)
     assert store.enabled_keys("twitter")[0] == "x-cli"
-    assert store.enabled_keys("facebook")[0] == "facebook-cli"
+    assert store.enabled_keys("facebook")[0] == "facebook-resolver"
