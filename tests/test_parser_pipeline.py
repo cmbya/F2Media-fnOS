@@ -80,5 +80,5 @@ def test_pipeline_order_is_user_configurable():
     from f2media.core.parser_routes import DEFAULT_BUILTIN_ORDER
 
     assert DEFAULT_BUILTIN_ORDER["twitter"][:3] == ["x-cli", "gallery-dl", "yt-dlp"]
-    assert DEFAULT_BUILTIN_ORDER["facebook"][:3] == ["gallery-dl", "facebook-cli", "yt-dlp"]
+    assert DEFAULT_BUILTIN_ORDER["facebook"][:3] == ["facebook-extractor", "gallery-dl", "yt-dlp"]
     assert DEFAULT_BUILTIN_ORDER["douyin"][:2] == ["douyin_parse", "short_videos-local"]

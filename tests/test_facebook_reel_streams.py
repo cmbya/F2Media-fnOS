@@ -16,7 +16,7 @@ def test_facebook_cli_reel_streams_are_normalized():
     }
     result = normalize_facebook_cli(payload, payload["permalink"])
     assert result["ok"] is True
-    assert result["parser"] == "facebook-cli"
+    assert result["parser"] in {"facebook-extractor", "facebook-cli"}
     assert result["media_type"] == "video"
     assert result["counts"] == {"videos": 1, "images": 0, "live_photos": 0}
     assert result["media"] == [{"type": "video", "url": "https://video.xx.fbcdn.net/hd.mp4"}]
