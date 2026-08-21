@@ -14,6 +14,7 @@ BUILTINS: list[dict[str, Any]] = [
     {"key": "douyin_parse", "label": "douyin_parse", "kind": "builtin", "recommended": {"douyin"}},
     {"key": "short_videos-local", "label": "short_videos 本地逻辑", "kind": "builtin", "recommended": {"douyin", "kuaishou", "bilibili", "xiaohongshu"}},
     {"key": "x-cli", "label": "x-cli", "kind": "builtin", "recommended": {"twitter"}},
+    {"key": "facebook-resolver", "label": "Facebook URL Resolver", "kind": "builtin", "recommended": {"facebook"}},
     {"key": "facebook-cli", "label": "facebook-cli", "kind": "builtin", "recommended": {"facebook"}},
     {"key": "gallery-dl", "label": "gallery-dl", "kind": "builtin", "recommended": {"instagram", "twitter", "facebook", "tiktok", "bilibili"}},
     {"key": "yt-dlp", "label": "yt-dlp", "kind": "builtin", "recommended": {"douyin", "tiktok", "twitter", "instagram", "facebook", "youtube", "bilibili", "xiaohongshu"}},
@@ -28,7 +29,7 @@ DEFAULT_BUILTIN_ORDER = {
     "instagram": ["gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
     "twitter": ["x-cli", "gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "facebook-cli"],
     "youtube": ["gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
-    "facebook": ["facebook-cli", "gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli"],
+    "facebook": ["facebook-resolver", "gallery-dl", "facebook-cli", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli"],
     "tiktok": ["gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
 }
 

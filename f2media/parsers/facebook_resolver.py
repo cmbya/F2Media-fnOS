@@ -161,7 +161,7 @@ async def resolve_facebook_url(url: str, cookie_header: str | None = None) -> st
 
     normalized = normalize_known_facebook_url(url)
     parsed = urlparse(normalized)
-    if "/share/" not in parsed.path.lower():
+    if not any(x in parsed.path.lower() for x in ("/share/", "/reel/", "/reels/")):
         return normalized
 
     headers_base = {
@@ -170,6 +170,11 @@ async def resolve_facebook_url(url: str, cookie_header: str | None = None) -> st
     }
     if cookie_header:
         headers_base["Cookie"] = cookie_header
+
+    # Reel pages are not handled by facebook-cli/galleries consistently.
+    # Try direct media metadata extraction first.
+    if any(x in parsed.path.lower() for x in ("/reel/", "/reels/")):
+        logger.info("facebook resolver start kind=reel cookie_configured=%s", bool(cookie_header))
 
     variants = [
         (normalized, "Mozilla/5.0 (Linux; Android 14; SM-S9280) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0 Mobile Safari/537.36"),
