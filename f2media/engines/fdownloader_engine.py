@@ -1,6 +1,6 @@
-from .base import BaseEngine
+from f2media.parsers.fdownloader import parse
 
-class FDownloaderEngine(BaseEngine):
+class FDownloaderEngine:
     key="fdownloader"
     async def parse(self,url,**kwargs):
-        return {"ok":False,"parser":self.key,"error":"fdownloader adapter pending"}
+        return await parse(url,**kwargs)

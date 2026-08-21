@@ -1,11 +1,6 @@
-from .base import BaseEngine
+from f2media.parsers.iiilab import parse
 
-class IIILabEngine(BaseEngine):
-    key = "iiilab"
-
-    async def parse(self, url: str, **kwargs):
-        return {
-            "ok": False,
-            "parser": "iiilab",
-            "error": "iiilab engine adapter not enabled yet"
-        }
+class IIILabEngine:
+    key="iiilab"
+    async def parse(self,url,**kwargs):
+        return await parse(url,**kwargs)

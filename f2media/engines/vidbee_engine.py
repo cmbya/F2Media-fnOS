@@ -1,13 +1,6 @@
-from .base import BaseEngine
+from f2media.parsers.vidbee import parse
 
-class VidBeeEngine(BaseEngine):
-    key = "vidbee"
-
-    async def parse(self, url: str, **kwargs):
-        # VidBee engine adapter placeholder.
-        # Keeps unified interface so downloader-core can be integrated here.
-        return {
-            "ok": False,
-            "parser": "vidbee",
-            "error": "VidBee engine adapter not enabled yet"
-        }
+class VidBeeEngine:
+    key="vidbee"
+    async def parse(self,url,**kwargs):
+        return await parse(url,**kwargs)
