@@ -14,6 +14,7 @@ BUILTINS: list[dict[str, Any]] = [
     {"key": "douyin_parse", "label": "douyin_parse", "kind": "builtin", "recommended": {"douyin"}},
     {"key": "short_videos-local", "label": "short_videos 本地逻辑", "kind": "builtin", "recommended": {"douyin", "kuaishou", "bilibili", "xiaohongshu"}},
     {"key": "x-cli", "label": "x-cli", "kind": "builtin", "recommended": {"twitter"}},
+    {"key": "facebook-extractor", "label": "Facebook 专用解析器", "kind": "builtin", "recommended": {"facebook"}},
     {"key": "facebook-cli", "label": "facebook-cli", "kind": "builtin", "recommended": {"facebook"}},
     {"key": "fdownloader", "label": "fdownloader", "kind": "builtin", "recommended": {"facebook"}},
     {"key": "vidbee", "label": "VidBee", "kind": "builtin", "recommended": {"facebook", "youtube", "instagram", "twitter"}},
