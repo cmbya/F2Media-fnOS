@@ -26,6 +26,9 @@ from .parsers.free_api import FreeApiStore
 from .parsers.facebook_resolver import facebook_cli_target, facebook_cookie_credentials, resolve_facebook_url
 from .parsers.social_cli import parse_cli_json, normalize_x_cli, normalize_facebook_cli
 from .parsers.short_videos import ShortVideosLocalParser
+from .parsers import fdownloader as fdownloader_parser
+from .parsers import iiilab as iiilab_parser
+from .parsers import vidbee as vidbee_parser
 
 GALLERY_PLATFORMS = {"instagram", "twitter", "facebook", "tiktok", "bilibili"}
 YTDLP_PLATFORMS = {"douyin", "tiktok", "twitter", "instagram", "facebook", "youtube", "bilibili", "xiaohongshu", "kuaishou"}
@@ -178,6 +181,26 @@ class ParseService:
             if item.platform != "facebook":
                 raise RuntimeError("facebook-cli 只支持 Facebook")
             return await self._facebook_cli_probe(item)
+        if parser_key == "facebook-extractor":
+            if item.platform != "facebook":
+                raise RuntimeError("facebook-extractor 只支持 Facebook")
+            resolved = await resolve_facebook_url(item.url, cookie_header_for_engine(cookie))
+            if resolved == item.url:
+                raise RuntimeError("Facebook resolver 没有解析出真实地址")
+            item.url = resolved
+            return await self._ytdlp_probe(item)
+
+        if parser_key == "fdownloader":
+            if item.platform != "facebook":
+                raise RuntimeError("fdownloader 只支持 Facebook")
+            return await fdownloader_parser.parse(item.url, cookie)
+
+        if parser_key == "iiilab":
+            return await iiilab_parser.parse(item.url, item.platform, cookie)
+
+        if parser_key == "vidbee":
+            return await vidbee_parser.parse(item.url, item.platform, cookie)
+
         if parser_key == "gallery-dl":
             return await self._gallery_probe(item)
         if parser_key == "yt-dlp":
