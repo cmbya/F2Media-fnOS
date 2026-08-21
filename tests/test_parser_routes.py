@@ -23,11 +23,15 @@ def _seed(db: Database, name: str, platforms: list[str], priority: int = 50) -> 
 
 def test_all_nine_platforms_show_all_builtin_parsers(tmp_path):
     store = ParserRouteStore(_db(tmp_path))
-    expected = {"douyin_parse", "short_videos-local", "x-cli", "facebook-cli", "facebook-extractor", "vidbee", "iiilab", "fdownloader", "gallery-dl", "yt-dlp"}
+    # Resolver is intentionally NOT a parser: it is an always-on Facebook-only
+    # preprocessor, so all nine cards continue to expose the same parser set.
+    expected = {"douyin_parse", "short_videos-local", "x-cli", "facebook-cli", "facebook-extractor", "fdownloader", "iiilab", "vidbee", "gallery-dl", "yt-dlp"}
     assert set(PLATFORMS) == {"douyin", "kuaishou", "bilibili", "xiaohongshu", "instagram", "twitter", "youtube", "facebook", "tiktok"}
     for platform in PLATFORMS:
         keys = {x["key"] for x in store.get(platform)["items"] if x["kind"] == "builtin"}
-        assert keys == expected
+        assert expected.issubset(keys)
+        if platform == "facebook":
+            assert "facebook-extractor" in keys
 
 
 def test_free_api_is_independent_route_item_on_every_platform(tmp_path):
@@ -63,7 +67,7 @@ def test_user_order_and_enable_state_are_persisted(tmp_path):
 def test_new_api_appears_and_deleted_api_disappears(tmp_path):
     db = _db(tmp_path)
     store = ParserRouteStore(db)
-    store.save("facebook", [{"key": "facebook-cli", "enabled": True}])
+    store.save("facebook", [{"key": "gallery-dl", "enabled": True}])
     api_id = _seed(db, "fb-api", ["facebook"])
     key = f"free-api:{api_id}"
     row = {x["key"]: x for x in store.get("facebook")["items"]}[key]
@@ -72,10 +76,11 @@ def test_new_api_appears_and_deleted_api_disappears(tmp_path):
     assert key not in {x["key"] for x in store.get("facebook")["items"]}
 
 
-def test_facebook_and_x_defaults_put_specialized_cli_first(tmp_path):
+def test_facebook_defaults_gallery_first_and_x_cli_first(tmp_path):
     db = _db(tmp_path)
     _seed(db, "x-api", ["twitter"], 10)
     _seed(db, "fb-api", ["facebook"], 10)
     store = ParserRouteStore(db)
     assert store.enabled_keys("twitter")[0] == "x-cli"
     assert store.enabled_keys("facebook")[0] == "facebook-extractor"
+    assert "vidbee" in store.enabled_keys("facebook")
