@@ -14,12 +14,12 @@ BUILTINS: list[dict[str, Any]] = [
     {"key": "douyin_parse", "label": "douyin_parse", "kind": "builtin", "recommended": {"douyin"}},
     {"key": "short_videos-local", "label": "short_videos 本地逻辑", "kind": "builtin", "recommended": {"douyin", "kuaishou", "bilibili", "xiaohongshu"}},
     {"key": "x-cli", "label": "x-cli", "kind": "builtin", "recommended": {"twitter"}},
-    {"key": "facebook-extractor", "label": "Facebook 专用解析器", "kind": "builtin", "recommended": {"facebook"}},
     {"key": "facebook-cli", "label": "facebook-cli", "kind": "builtin", "recommended": {"facebook"}},
+    {"key": "fdownloader", "label": "fdownloader", "kind": "builtin", "recommended": {"facebook"}},
+    {"key": "vidbee", "label": "VidBee", "kind": "builtin", "recommended": {"facebook", "youtube", "instagram", "twitter"}},
+    {"key": "iiilab", "label": "iiilab", "kind": "builtin", "recommended": {"facebook", "youtube", "instagram", "twitter"}},
     {"key": "gallery-dl", "label": "gallery-dl", "kind": "builtin", "recommended": {"instagram", "twitter", "facebook", "tiktok", "bilibili"}},
     {"key": "yt-dlp", "label": "yt-dlp", "kind": "builtin", "recommended": {"douyin", "tiktok", "twitter", "instagram", "facebook", "youtube", "bilibili", "xiaohongshu"}},
-    {"key": "vidbee", "label": "VidBee Engine", "kind": "builtin", "recommended": {"twitter", "instagram", "facebook", "youtube", "tiktok", "bilibili"}},
-    {"key": "iiilab", "label": "iiilab Engine", "kind": "builtin", "recommended": {"twitter", "instagram", "facebook", "youtube"}},
 ]
 
 # Keeps the existing architecture as the default while still showing every parser.
@@ -28,9 +28,9 @@ DEFAULT_BUILTIN_ORDER = {
     "kuaishou": ["short_videos-local", "gallery-dl", "yt-dlp", "douyin_parse", "x-cli", "facebook-cli"],
     "bilibili": ["short_videos-local", "gallery-dl", "yt-dlp", "douyin_parse", "x-cli", "facebook-cli"],
     "xiaohongshu": ["short_videos-local", "gallery-dl", "yt-dlp", "douyin_parse", "x-cli", "facebook-cli"],
-    "instagram": ["gallery-dl", "vidbee", "iiilab", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
+    "instagram": ["gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
     "twitter": ["x-cli", "gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "facebook-cli"],
-    "youtube": ["yt-dlp", "vidbee", "iiilab", "gallery-dl", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
+    "youtube": ["gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
     "facebook": ["facebook-extractor", "vidbee", "iiilab", "fdownloader", "gallery-dl", "yt-dlp", "facebook-cli", "short_videos-local", "douyin_parse", "x-cli"],
     "tiktok": ["gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
 }
