@@ -25,13 +25,21 @@ def test_all_nine_platforms_show_all_builtin_parsers(tmp_path):
     store = ParserRouteStore(_db(tmp_path))
     # Resolver is intentionally NOT a parser: it is an always-on Facebook-only
     # preprocessor, so all nine cards continue to expose the same parser set.
-    expected = {"douyin_parse", "short_videos-local", "x-cli", "facebook-cli", "facebook-extractor", "fdownloader", "iiilab", "vidbee", "gallery-dl", "yt-dlp"}
-    assert set(PLATFORMS) == {"douyin", "kuaishou", "bilibili", "xiaohongshu", "instagram", "twitter", "youtube", "facebook", "tiktok"}
+    expected = {
+        "douyin": {"douyin_parse", "short_videos-local", "gallery-dl", "yt-dlp"},
+        "kuaishou": {"short_videos-local", "gallery-dl", "yt-dlp"},
+        "bilibili": {"yt-dlp"},
+        "xiaohongshu": {"gallery-dl", "yt-dlp"},
+        "instagram": {"gallery-dl", "iiilab", "vidbee", "yt-dlp"},
+        "twitter": {"x-cli", "iiilab", "vidbee", "yt-dlp"},
+        "youtube": {"yt-dlp", "iiilab", "vidbee"},
+        "facebook": {"facebook-cli", "facebook-extractor", "fdownloader", "gallery-dl", "iiilab", "vidbee", "yt-dlp"},
+        "tiktok": {"gallery-dl", "yt-dlp"},
+    }
+    assert set(PLATFORMS) == set(expected)
     for platform in PLATFORMS:
         keys = {x["key"] for x in store.get(platform)["items"] if x["kind"] == "builtin"}
-        assert expected.issubset(keys)
-        if platform == "facebook":
-            assert "facebook-extractor" in keys
+        assert expected[platform].issubset(keys)
 
 
 def test_free_api_is_independent_route_item_on_every_platform(tmp_path):
