@@ -161,7 +161,7 @@ async def resolve_facebook_url(url: str, cookie_header: str | None = None) -> st
 
     normalized = normalize_known_facebook_url(url)
     parsed = urlparse(normalized)
-    if "/share/" not in parsed.path.lower():
+    if not any(x in parsed.path.lower() for x in ("/share/", "/reel/", "/watch")):
         return normalized
 
     headers_base = {
@@ -178,7 +178,7 @@ async def resolve_facebook_url(url: str, cookie_header: str | None = None) -> st
         (normalized, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0 Safari/537.36"),
     ]
 
-    logger.info("facebook resolver start kind=share cookie_configured=%s", bool(cookie_header))
+    logger.info("facebook resolver start kind=wrapper cookie_configured=%s", bool(cookie_header))
     for attempt, (candidate_url, ua) in enumerate(variants, 1):
         headers = dict(headers_base)
         headers["User-Agent"] = ua
@@ -202,5 +202,5 @@ async def resolve_facebook_url(url: str, cookie_header: str | None = None) -> st
         except Exception as exc:
             logger.info("facebook resolver attempt=%s failed=%s", attempt, type(exc).__name__)
 
-    logger.warning("facebook resolver unresolved share_url=true")
+    logger.warning("facebook resolver unresolved wrapper=true")
     return normalized
