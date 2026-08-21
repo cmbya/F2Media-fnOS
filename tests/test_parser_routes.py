@@ -25,7 +25,7 @@ def test_all_nine_platforms_show_all_builtin_parsers(tmp_path):
     store = ParserRouteStore(_db(tmp_path))
     # Resolver is intentionally NOT a parser: it is an always-on Facebook-only
     # preprocessor, so all nine cards continue to expose the same parser set.
-    expected = {"douyin_parse", "short_videos-local", "x-cli", "facebook-cli", "facebook-extractor", "gallery-dl", "yt-dlp"}
+    expected = {"douyin_parse", "short_videos-local", "x-cli", "facebook-cli", "gallery-dl", "yt-dlp"}
     assert set(PLATFORMS) == {"douyin", "kuaishou", "bilibili", "xiaohongshu", "instagram", "twitter", "youtube", "facebook", "tiktok"}
     for platform in PLATFORMS:
         keys = {x["key"] for x in store.get(platform)["items"] if x["kind"] == "builtin"}
