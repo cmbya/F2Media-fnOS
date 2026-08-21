@@ -83,3 +83,4 @@ def test_facebook_defaults_gallery_first_and_x_cli_first(tmp_path):
     store = ParserRouteStore(db)
     assert store.enabled_keys("twitter")[0] == "x-cli"
     assert store.enabled_keys("facebook")[0] == "facebook-extractor"
+    assert "vidbee" in store.enabled_keys("facebook")
