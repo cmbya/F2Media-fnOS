@@ -31,7 +31,7 @@ DEFAULT_BUILTIN_ORDER = {
     "instagram": ["gallery-dl", "vidbee", "iiilab", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
     "twitter": ["x-cli", "gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "facebook-cli"],
     "youtube": ["yt-dlp", "vidbee", "iiilab", "gallery-dl", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
-    "facebook": ["facebook-extractor", "vidbee", "iiilab", "gallery-dl", "yt-dlp", "facebook-cli", "short_videos-local", "douyin_parse", "x-cli"],
+    "facebook": ["facebook-extractor", "vidbee", "iiilab", "fdownloader", "gallery-dl", "yt-dlp", "facebook-cli", "short_videos-local", "douyin_parse", "x-cli"],
     "tiktok": ["gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
 }
 
