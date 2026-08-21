@@ -27,6 +27,8 @@ from .parsers.facebook_resolver import facebook_cli_target, facebook_cookie_cred
 from .parsers.facebook_extractor import resolve_facebook_url
 from .parsers.social_cli import parse_cli_json, normalize_x_cli, normalize_facebook_cli
 from .parsers.short_videos import ShortVideosLocalParser
+from .engines.vidbee_engine import VidBeeEngine
+from .engines.iiilab_engine import IIILabEngine
 
 GALLERY_PLATFORMS = {"instagram", "twitter", "facebook", "tiktok", "bilibili"}
 YTDLP_PLATFORMS = {"douyin", "tiktok", "twitter", "instagram", "facebook", "youtube", "bilibili", "xiaohongshu", "kuaishou"}
@@ -58,6 +60,8 @@ class ParseService:
         self.logger = logger
         self.douyin = DouyinParseAdapter()
         self.short_videos = ShortVideosLocalParser()
+        self.vidbee = VidBeeEngine()
+        self.iiilab = IIILabEngine()
 
     async def parse_text(
         self, text: str, *, persist: bool = True, parser: str | None = None
@@ -188,6 +192,10 @@ class ParseService:
             return await self._facebook_cli_probe(item)
         if parser_key == "gallery-dl":
             return await self._gallery_probe(item)
+        if parser_key == "vidbee":
+            return await self.vidbee.parse(item.url, platform=item.platform, cookie=cookie)
+        if parser_key == "iiilab":
+            return await self.iiilab.parse(item.url, platform=item.platform, cookie=cookie)
         if parser_key == "yt-dlp":
             return await self._ytdlp_probe(item)
         if parser_key.startswith("free-api:"):

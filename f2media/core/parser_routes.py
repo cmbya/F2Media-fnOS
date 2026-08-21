@@ -18,6 +18,8 @@ BUILTINS: list[dict[str, Any]] = [
     {"key": "facebook-cli", "label": "facebook-cli", "kind": "builtin", "recommended": {"facebook"}},
     {"key": "gallery-dl", "label": "gallery-dl", "kind": "builtin", "recommended": {"instagram", "twitter", "facebook", "tiktok", "bilibili"}},
     {"key": "yt-dlp", "label": "yt-dlp", "kind": "builtin", "recommended": {"douyin", "tiktok", "twitter", "instagram", "facebook", "youtube", "bilibili", "xiaohongshu"}},
+    {"key": "vidbee", "label": "VidBee Engine", "kind": "builtin", "recommended": {"twitter", "instagram", "facebook", "youtube", "tiktok", "bilibili"}},
+    {"key": "iiilab", "label": "iiilab Engine", "kind": "builtin", "recommended": {"twitter", "instagram", "facebook", "youtube"}},
 ]
 
 # Keeps the existing architecture as the default while still showing every parser.
@@ -26,10 +28,10 @@ DEFAULT_BUILTIN_ORDER = {
     "kuaishou": ["short_videos-local", "gallery-dl", "yt-dlp", "douyin_parse", "x-cli", "facebook-cli"],
     "bilibili": ["short_videos-local", "gallery-dl", "yt-dlp", "douyin_parse", "x-cli", "facebook-cli"],
     "xiaohongshu": ["short_videos-local", "gallery-dl", "yt-dlp", "douyin_parse", "x-cli", "facebook-cli"],
-    "instagram": ["gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
+    "instagram": ["gallery-dl", "vidbee", "iiilab", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
     "twitter": ["x-cli", "gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "facebook-cli"],
-    "youtube": ["gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
-    "facebook": ["facebook-extractor", "gallery-dl", "yt-dlp", "facebook-cli", "short_videos-local", "douyin_parse", "x-cli"],
+    "youtube": ["yt-dlp", "vidbee", "iiilab", "gallery-dl", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
+    "facebook": ["vidbee", "facebook-extractor", "iiilab", "gallery-dl", "yt-dlp", "facebook-cli", "short_videos-local", "douyin_parse", "x-cli"],
     "tiktok": ["gallery-dl", "yt-dlp", "short_videos-local", "douyin_parse", "x-cli", "facebook-cli"],
 }
 
