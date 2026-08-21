@@ -223,15 +223,12 @@ class ParseService:
         if not prefix:
             raise RuntimeError("facebook-cli 不可用")
 
-        # facebook-cli keeps its session/cache under FB_DATA_DIR, which _capture
-        # already points at this state directory. Import F2Media's existing
-        # Facebook cookies into that isolated session before reads that may need it.
         state = self.settings.data_dir / "engine-state" / "facebook" / "facebook-cli"
         state.mkdir(parents=True, exist_ok=True)
         cookie, _ = self.cookies.get("facebook")
         c_user, xs = facebook_cookie_credentials(cookie)
         self.logger.info(
-            "facebook-cli session cookie_configured=%s c_user=%s xs=%s",
+            "facebook-cli session cookie_configured=%s c_user_present=%s xs_present=%s",
             bool(cookie), bool(c_user), bool(xs),
         )
         if c_user and xs:
@@ -246,27 +243,49 @@ class ParseService:
             self.logger.info("facebook-cli session import ok")
 
         command, target = facebook_cli_target(item.url)
-        self.logger.info(
-            "facebook-cli target command=%s target_kind=%s",
-            command, "id" if command in {"reel", "video", "photo"} else "url",
-        )
-        rc, out, err = await self._capture(
-            [*prefix, command, target, "-o", "json"],
-            state_dir=state,
-            timeout=90,
-        )
-        if rc != 0:
-            detail = redact_text(err.strip()[-1800:] or out.strip()[-800:] or f"facebook-cli exit={rc}")
-            if rc == 4 and not (c_user and xs):
-                detail += "；该内容需要 Facebook 登录会话，但当前 Cookie 缺少 c_user 或 xs"
-            raise RuntimeError(detail)
-        payload = parse_cli_json(out)
-        if payload is None:
-            raise RuntimeError("facebook-cli 没有返回 JSON 媒体数据")
-        result = normalize_facebook_cli(payload, item.url)
-        if not result.get("ok"):
-            raise RuntimeError("facebook-cli 没有返回可下载媒体 URL")
-        return result
+        probes = [(command, target)]
+        # Upstream's Video operation reads a reel through the reel surface first.
+        # Some Facebook responses nevertheless populate the generic video command
+        # more completely, so use it as a second read for a numeric reel id.
+        if command == "reel":
+            probes.append(("video", target))
+
+        errors: list[str] = []
+        for probe_command, probe_target in probes:
+            self.logger.info(
+                "facebook-cli target command=%s target_kind=%s",
+                probe_command, "id" if probe_command in {"reel", "video", "photo"} else "url",
+            )
+            rc, out, err = await self._capture(
+                [*prefix, probe_command, probe_target, "-o", "json"],
+                state_dir=state,
+                timeout=90,
+            )
+            if rc != 0:
+                detail = redact_text(err.strip()[-1800:] or out.strip()[-800:] or f"facebook-cli exit={rc}")
+                if rc == 4 and not (c_user and xs):
+                    detail += "；该内容需要 Facebook 登录会话，但当前 Cookie 缺少 c_user 或 xs"
+                errors.append(f"{probe_command}: {detail}")
+                continue
+
+            payload = parse_cli_json(out)
+            if payload is None:
+                errors.append(f"{probe_command}: 没有返回 JSON 媒体数据")
+                continue
+            result = normalize_facebook_cli(payload, item.url)
+            if result.get("ok"):
+                if probe_command != command:
+                    self.logger.info("facebook-cli reel fallback succeeded command=%s", probe_command)
+                return result
+
+            if isinstance(payload, dict):
+                shape = sorted(str(k) for k in payload.keys())[:40]
+                self.logger.info("facebook-cli no-media command=%s json_top_keys=%s", probe_command, shape)
+            elif isinstance(payload, list):
+                self.logger.info("facebook-cli no-media command=%s json_list_len=%s", probe_command, len(payload))
+            errors.append(f"{probe_command}: 没有返回可下载媒体 URL")
+
+        raise RuntimeError("facebook-cli " + "；".join(errors or ["没有返回可下载媒体 URL"]))
 
     async def _capture(self, cmd: list[str], *, state_dir: Path, timeout: int = 60) -> tuple[int, str, str]:
         env = os.environ.copy()
