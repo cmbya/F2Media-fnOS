@@ -53,6 +53,20 @@ DEFAULT_BUGPK_SVPARSE = {
     "priority": 20,
 }
 
+DEFAULT_IFPHP_SVPARSE = {
+    "name": "IFPHP 聚合解析（需 API Key）",
+    "platforms": ["douyin", "kuaishou", "bilibili", "xiaohongshu", "instagram", "twitter", "youtube", "facebook", "tiktok"],
+    "url": "https://api-new.ifphp.com/api/svparse",
+    "method": "GET",
+    "url_param": "url",
+    "headers": {"X-API-Key": ""},
+    "params": {},
+    "mapping": {},
+    "timeout": 30,
+    "enabled": False,
+    "priority": 5,
+}
+
 DEFAULT_BUGPK_DYZY = {
     "name": "BugPK 抖音主页解析",
     "platforms": ["douyin"],
@@ -87,11 +101,12 @@ DEFAULT_BUGPK = {
 BUILTIN_APIS = [
     DEFAULT_BUGPK_DOUYIN,
     DEFAULT_BUGPK_KSJX,
+    DEFAULT_IFPHP_SVPARSE,
     DEFAULT_BUGPK_SVPARSE,
     DEFAULT_BUGPK_DYZY,
     DEFAULT_BUGPK,
 ]
-BUILTIN_DEFAULTS_VERSION = "2"
+BUILTIN_DEFAULTS_VERSION = "3"
 
 
 def dot_get(value: Any, path: str | None) -> Any:
