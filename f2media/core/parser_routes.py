@@ -11,6 +11,8 @@ PLATFORMS = (
 )
 
 BUILTINS: list[dict[str, Any]] = [
+    {"key": "parse_shenzjd", "label": "parse.shenzjd.com（Docker）", "kind": "builtin", "cookie_supported": True, "recommended": {"douyin", "kuaishou", "xiaohongshu", "bilibili", "twitter"}},
+    {"key": "short_videos_docker", "label": "short_videos（Docker）", "kind": "builtin", "cookie_supported": True, "recommended": {"kuaishou", "xiaohongshu", "bilibili"}},
     {"key": "douyin_parse", "label": "douyin_parse（需 Cookie）", "kind": "builtin", "cookie_supported": True, "recommended": {"douyin"}},
     {"key": "x-cli", "label": "x-cli", "kind": "builtin", "cookie_supported": True, "recommended": {"twitter"}},
     {"key": "short_videos", "label": "short_videos（本地 PHP）", "kind": "builtin", "cookie_supported": True, "recommended": {"douyin", "kuaishou", "xiaohongshu", "bilibili"}},
@@ -19,12 +21,12 @@ BUILTINS: list[dict[str, Any]] = [
 ]
 
 DEFAULT_BUILTIN_ORDER = {
-    "douyin": ["douyin_parse", "short_videos", "gallery-dl", "yt-dlp"],
-    "kuaishou": ["short_videos", "gallery-dl", "yt-dlp"],
-    "bilibili": ["short_videos", "gallery-dl", "yt-dlp"],
-    "xiaohongshu": ["short_videos", "gallery-dl", "yt-dlp"],
+    "douyin": ["parse_shenzjd", "short_videos_docker", "douyin_parse", "short_videos", "gallery-dl", "yt-dlp"],
+    "kuaishou": ["short_videos_docker", "parse_shenzjd", "short_videos", "gallery-dl", "yt-dlp"],
+    "bilibili": ["short_videos_docker", "parse_shenzjd", "short_videos", "gallery-dl", "yt-dlp"],
+    "xiaohongshu": ["short_videos_docker", "parse_shenzjd", "short_videos", "gallery-dl", "yt-dlp"],
     "instagram": ["gallery-dl", "yt-dlp"],
-    "twitter": ["x-cli", "gallery-dl", "yt-dlp"],
+    "twitter": ["parse_shenzjd", "x-cli", "gallery-dl", "yt-dlp"],
     "youtube": ["yt-dlp", "gallery-dl"],
     "facebook": ["gallery-dl", "yt-dlp"],
     "tiktok": ["gallery-dl", "yt-dlp"],
@@ -71,8 +73,8 @@ class ParserRouteStore:
             })
         apis.sort(key=lambda x: (0 if x["recommended"] else 1, x["api_priority"], x["api_id"]))
 
-        # Free APIs are deliberately a later fallback for the four platforms
-        # covered by the local short_videos engine. Keep x-cli first for X/Twitter.
+        # Docker engines are the primary routes for the domestic platforms.
+        # Free APIs remain a later fallback. Keep x-cli available as an X fallback.
         if platform == "twitter":
             insert_at = 1
         elif platform == "douyin":
