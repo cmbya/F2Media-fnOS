@@ -6,7 +6,7 @@ on:
       version:
         description: "F2Media 版本（X.Y.Z）"
         required: true
-        default: "0.2.2"
+        default: "0.5.2"
         type: string
 
 permissions:
@@ -21,7 +21,6 @@ jobs:
       FNPACK_VERSION: "1.2.3"
       FNPACK_LINUX_AMD64_SHA256: "54b97fa7b70968c4d05c79840f5daeff508957d0bb2062fdb0376d00d9615c93"
       XCLI_VERSION: "v0.5.0"
-      FBCLI_VERSION: "v0.3.0"
 
     steps:
       - name: Checkout
@@ -63,14 +62,12 @@ jobs:
           test -f build/vendor/douyin_parse/xbogus.py
           git -C build/vendor/douyin_parse rev-parse HEAD | tee build-logs/douyin-parse-commit.txt
 
-      - name: Fetch x-cli and facebook-cli sources
+      - name: Fetch x-cli source
         run: |
           set -euo pipefail
-          rm -rf build/vendor/x-cli build/vendor/facebook-cli
+          rm -rf build/vendor/x-cli
           git clone --depth 1 --branch "$XCLI_VERSION" --recurse-submodules https://github.com/tamnd/x-cli.git build/vendor/x-cli
-          git clone --depth 1 --branch "$FBCLI_VERSION" --recurse-submodules https://github.com/tamnd/facebook-cli.git build/vendor/facebook-cli
           git -C build/vendor/x-cli rev-parse HEAD | tee build-logs/x-cli-commit.txt
-          git -C build/vendor/facebook-cli rev-parse HEAD | tee build-logs/facebook-cli-commit.txt
 
       - name: Install build dependencies
         run: |
@@ -136,15 +133,13 @@ jobs:
             scripts/engine_gallerydl_entry.py
           mv dist/gallery-dl build/engines/
 
-      - name: Build x-cli and facebook-cli
+      - name: Build x-cli
         run: |
           set -euo pipefail
           mkdir -p build/bin
           (cd build/vendor/x-cli && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$GITHUB_WORKSPACE/build/bin/x-cli" ./cmd/x)
-          (cd build/vendor/facebook-cli && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$GITHUB_WORKSPACE/build/bin/facebook-cli" ./cmd/fb)
-          chmod +x build/bin/x-cli build/bin/facebook-cli
+          chmod +x build/bin/x-cli
           (build/bin/x-cli version || build/bin/x-cli --version) | tee build-logs/x-cli-version.txt
-          (build/bin/facebook-cli version || build/bin/facebook-cli --version) | tee build-logs/facebook-cli-version.txt
 
       - name: Download external binaries
         env:
@@ -172,7 +167,7 @@ jobs:
           python scripts/check_glibc.py --max 2.36 \
             build/runtime/f2media-runtime build/engines/gallery-dl \
             build/bin/yt-dlp build/bin/deno build/bin/ffmpeg build/bin/ffprobe \
-            build/bin/x-cli build/bin/facebook-cli \
+            build/bin/x-cli \
             2>&1 | tee build-logs/glibc.log
 
       - name: Runtime API/MCP self-check
@@ -185,7 +180,6 @@ jobs:
           F2MEDIA_YTDLP_BIN="$PWD/build/bin/yt-dlp" \
           F2MEDIA_DENO_BIN="$PWD/build/bin/deno" \
           F2MEDIA_XCLI_BIN="$PWD/build/bin/x-cli" \
-          F2MEDIA_FBCLI_BIN="$PWD/build/bin/facebook-cli" \
           F2MEDIA_FFMPEG_DIR="$PWD/build/bin" \
           F2MEDIA_API_KEY="ci-test-api-key" F2MEDIA_PORT=18083 \
             build/runtime/f2media-runtime/f2media-runtime >"$TMPROOT/runtime.log" 2>&1 &
@@ -241,4 +235,4 @@ jobs:
           set -euo pipefail
           gh release create "v$VERSION" dist/*.fpk dist/SHA256SUMS.txt \
             --title "F2Media v$VERSION" \
-            --notes "F2Media v$VERSION：九平台解析/下载架构重构；抖音优先 douyin_parse；short_videos 本地逻辑 + 可编辑免费 API + gallery-dl + yt-dlp；支持 REST/MCP、Cookie、日期/平台/标题目录、Live Photo 成对下载、任务管理，以及 平台解析路由可视化排序；新增 x-cli、facebook-cli 与 Facebook URL Resolver；gallery-dl/yt-dlp/x-cli/facebook-cli WebUI 在线更新与一键回滚。"
+            --notes "F2Media v$VERSION：九平台解析/下载架构重构；抖音优先 douyin_parse；douyin_parse + 可编辑免费 API + gallery-dl + yt-dlp；支持 REST/MCP、Cookie、日期/平台/标题目录、Live Photo 成对下载、任务管理，以及 平台解析路由可视化排序；保留 x-cli；gallery-dl/yt-dlp/x-cli 支持 WebUI 在线更新与一键回滚。"
