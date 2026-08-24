@@ -27,6 +27,7 @@ from .parsers.douyin_parse import DouyinParseAdapter
 from .parsers.free_api import FreeApiStore
 from .parsers.social_cli import parse_cli_json, normalize_x_cli
 from .parsers.short_videos import ShortVideosAdapter
+from .parsers.docker_engines import ParseShenzjdAdapter, ShortVideosDockerAdapter
 
 GALLERY_PLATFORMS = {"instagram", "twitter", "facebook", "tiktok", "bilibili"}
 YTDLP_PLATFORMS = {"douyin", "tiktok", "twitter", "instagram", "facebook", "youtube", "bilibili", "xiaohongshu", "kuaishou"}
@@ -58,6 +59,8 @@ class ParseService:
         self.logger = logger
         self.douyin = DouyinParseAdapter()
         self.short_videos = ShortVideosAdapter()
+        self.parse_shenzjd = ParseShenzjdAdapter()
+        self.short_videos_docker = ShortVideosDockerAdapter()
 
     async def parse_text(
         self, text: str, *, persist: bool = True, parser: str | None = None
@@ -184,6 +187,10 @@ class ParseService:
             return await self._ytdlp_probe(item, cookie)
         if parser_key == "short_videos":
             return await self.short_videos.parse(item, cookie, self)
+        if parser_key == "parse_shenzjd":
+            return await self.parse_shenzjd.parse(item, cookie)
+        if parser_key == "short_videos_docker":
+            return await self.short_videos_docker.parse(item, cookie)
         if parser_key.startswith("free-api:"):
             try:
                 api_id = int(parser_key.split(":", 1)[1])
