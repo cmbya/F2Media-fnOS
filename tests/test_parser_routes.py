@@ -19,12 +19,12 @@ def _seed(db: Database, name: str, platforms: list[str], priority: int = 50) -> 
 def test_builtin_parsers_match_supported_set(tmp_path):
     store = ParserRouteStore(_db(tmp_path))
     expected = {
-        "douyin": {"douyin_parse", "short_videos", "gallery-dl", "yt-dlp"},
-        "kuaishou": {"short_videos", "gallery-dl", "yt-dlp"},
-        "bilibili": {"short_videos", "gallery-dl", "yt-dlp"},
-        "xiaohongshu": {"short_videos", "gallery-dl", "yt-dlp"},
+        "douyin": {"parse_shenzjd", "short_videos_docker", "douyin_parse", "short_videos", "gallery-dl", "yt-dlp"},
+        "kuaishou": {"parse_shenzjd", "short_videos_docker", "short_videos", "gallery-dl", "yt-dlp"},
+        "bilibili": {"parse_shenzjd", "short_videos_docker", "short_videos", "gallery-dl", "yt-dlp"},
+        "xiaohongshu": {"parse_shenzjd", "short_videos_docker", "short_videos", "gallery-dl", "yt-dlp"},
         "instagram": {"gallery-dl", "yt-dlp"},
-        "twitter": {"x-cli", "gallery-dl", "yt-dlp"},
+        "twitter": {"parse_shenzjd", "x-cli", "gallery-dl", "yt-dlp"},
         "youtube": {"yt-dlp", "gallery-dl"},
         "facebook": {"gallery-dl", "yt-dlp"},
         "tiktok": {"gallery-dl", "yt-dlp"},
@@ -53,7 +53,7 @@ def test_supported_free_api_precedes_douyin_local_fallbacks(tmp_path):
     api_id = _seed(db, "dy-api", ["douyin"], 10)
     store = ParserRouteStore(db)
     enabled = store.enabled_keys("douyin")
-    assert enabled[:3] == ["douyin_parse", "short_videos", f"free-api:{api_id}"]
+    assert enabled[:4] == ["parse_shenzjd", "douyin_parse", f"free-api:{api_id}", "short_videos"]
     assert "douyin_parse" in enabled
 
 
@@ -61,7 +61,7 @@ def test_short_videos_is_before_free_api_on_supported_platforms(tmp_path):
     db = _db(tmp_path)
     api_id = _seed(db, "bili-api", ["bilibili"], 10)
     enabled = ParserRouteStore(db).enabled_keys("bilibili")
-    assert enabled[:2] == ["short_videos", f"free-api:{api_id}"]
+    assert enabled[:3] == ["short_videos_docker", "parse_shenzjd", f"free-api:{api_id}"]
 
 
 def test_user_order_and_enable_state_are_persisted(tmp_path):
@@ -93,7 +93,7 @@ def test_new_api_appears_and_deleted_api_disappears(tmp_path):
 
 def test_x_cli_default_and_facebook_uses_supported_engines(tmp_path):
     store = ParserRouteStore(_db(tmp_path))
-    assert store.enabled_keys("twitter")[0] == "x-cli"
+    assert store.enabled_keys("twitter")[0] == "parse_shenzjd"
     assert store.enabled_keys("facebook") == ["gallery-dl", "yt-dlp"]
 
 
