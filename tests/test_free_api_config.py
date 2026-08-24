@@ -5,6 +5,7 @@ from f2media.parsers.free_api import (
     DEFAULT_BUGPK_DOUYIN,
     DEFAULT_BUGPK_DYZY,
     DEFAULT_BUGPK_KSJX,
+    DEFAULT_IFPHP_SVPARSE,
     DEFAULT_BUGPK_SVPARSE,
     FreeApiStore,
     apply_mapping,
@@ -15,12 +16,15 @@ def test_builtin_bugpk_endpoints_and_order():
     assert [x['url'] for x in BUILTIN_APIS] == [
         'https://api.bugpk.com/api/douyin',
         'https://api.bugpk.com/api/ksjx',
+        'https://api-new.ifphp.com/api/svparse',
         'https://api.bugpk.com/api/svparse',
         'https://api.bugpk.com/api/dyzy',
         'https://api.bugpk.com/api/short_videos',
     ]
     assert DEFAULT_BUGPK_DOUYIN['priority'] == 10
     assert DEFAULT_BUGPK_KSJX['priority'] == 10
+    assert DEFAULT_IFPHP_SVPARSE['priority'] == 5
+    assert DEFAULT_IFPHP_SVPARSE['headers'] == {'X-API-Key': ''}
     assert DEFAULT_BUGPK_SVPARSE['priority'] == 20
     assert DEFAULT_BUGPK_DYZY['priority'] == 30
     assert DEFAULT_BUGPK['priority'] == 100
@@ -35,7 +39,7 @@ def test_existing_v020_database_gets_all_missing_builtin_apis_once(tmp_path):
 
     FreeApiStore(db)
     rows = db.parser_apis()
-    assert len(rows) == 5
+    assert len(rows) == 6
     assert {x['url'] for x in rows} == {x['url'] for x in BUILTIN_APIS}
 
     # Startup again must not create duplicates.
