@@ -327,7 +327,15 @@ class ParseService:
         state = self.settings.data_dir / "engine-state" / item.platform / "parse"
         cookie_file = await self._cookie_file(item, "gdl")
         conf_path = self.settings.temp_dir / f"parse-{uuid.uuid4().hex[:10]}-gdl.json"
-        target = await self._normalize_share_url(item, cookie_header_for_engine(self.cookies.get(item.platform)[0]))
+        # Facebook URLs are normalized once in parse_item(). Re-running the
+        # share resolver here causes duplicate network requests and can turn a
+        # good canonical URL back into an unresolved share wrapper.
+        if item.platform == "facebook":
+            target = item.url
+        else:
+            target = await self._normalize_share_url(
+                item, cookie_header_for_engine(self.cookies.get(item.platform)[0])
+            )
         rows: list[dict[str, Any]] = []
         media: list[dict[str, Any]] = []
         rc, out, err = 1, "", ""
@@ -450,6 +458,19 @@ class ParseService:
             if m:
                 return f"https://www.facebook.com/watch/?v={m.group(1)}"
 
+        # yt-dlp's generic extractor often resolves /share/p/ wrappers to
+        # permalink.php?story_fbid=... URLs.  gallery-dl can handle the
+        # canonical permalink form, so keep only the useful query fields and
+        # drop tracking/fragment noise.
+        if path.rstrip("/").lower() == "/permalink.php":
+            story = (query.get("story_fbid") or query.get("fbid") or [""])[0]
+            owner = (query.get("id") or [""])[0]
+            if story:
+                kept = f"story_fbid={story}"
+                if owner:
+                    kept += f"&id={owner}"
+                return f"https://www.facebook.com/permalink.php?{kept}"
+
         return urlunparse(("https", "www.facebook.com", path, "", parsed.query, ""))
 
     @classmethod
@@ -462,7 +483,7 @@ class ParseService:
             r'<link[^>]+href=["\']([^"\']+)["\'][^>]+rel=["\']canonical["\']',
             r'<meta[^>]+property=["\']og:url["\'][^>]+content=["\']([^"\']+)',
             r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:url["\']',
-            r'https?://(?:www\.|m\.|mbasic\.)?facebook\.com/(?:groups/[^"\'<>\s]+|watch/\?v=\d+|reels?/\d+[^"\'<>\s]*|[^/"\'<>\s]+/posts/[^"\'<>\s]+)',
+            r'https?://(?:www\.|m\.|mbasic\.)?facebook\.com/(?:groups/[^"\'<>\s]+|watch/\?v=\d+|reels?/\d+[^"\'<>\s]*|permalink\.php\?[^"\'<>\s]+|[^/"\'<>\s]+/posts/[^"\'<>\s]+)',
         ]
         for pattern in patterns:
             for match in re.findall(pattern, decoded, flags=re.I):
@@ -472,6 +493,68 @@ class ParseService:
                     if canonical not in candidates:
                         candidates.append(canonical)
         return candidates
+
+    @classmethod
+    def _facebook_candidates_from_ytdlp_output(cls, text: str) -> list[str]:
+        """Extract the redirect target that yt-dlp's generic extractor saw.
+
+        Facebook's /share/p/ and /share/r/ wrappers frequently return 400 to
+        plain httpx clients while yt-dlp still follows the browser-style
+        redirect chain.  We only use yt-dlp as a URL resolver here; media is
+        still parsed by gallery-dl afterwards.
+        """
+        decoded = html_lib.unescape(str(text or ""))
+        decoded = decoded.replace("\\/", "/").replace("\\u002F", "/").replace("\\u002f", "/")
+        candidates: list[str] = []
+        patterns = [
+            r"(?:Following redirect to|Redirecting to|redirect(?:ed)? to)\s*[:=]?\s*(https?://[^\s\]\)>'\"]+)",
+            r"(https?://(?:www\.|m\.|mbasic\.)?facebook\.com/(?:groups/[^\s\]\)>'\"]+|watch/\?v=\d+|reels?/\d+[^\s\]\)>'\"]*|permalink\.php\?[^\s\]\)>'\"]+|[^/\s]+/posts/[^\s\]\)>'\"]+))",
+        ]
+        for pattern in patterns:
+            for match in re.findall(pattern, decoded, flags=re.I):
+                value = match if isinstance(match, str) else match[0]
+                value = value.rstrip(".,;:")
+                canonical = cls._canonicalize_facebook_url(value)
+                if canonical.startswith("https://www.facebook.com/") and "/share/" not in canonical.lower():
+                    if canonical not in candidates:
+                        candidates.append(canonical)
+        return candidates
+
+    async def _resolve_facebook_share_with_ytdlp(self, url: str) -> list[str]:
+        prefix = engine_command("yt-dlp")
+        if not prefix:
+            return []
+        item = ParsedInput(url=url, platform="facebook")
+        cookie_file = await self._cookie_file(item, "fb-redirect")
+        state = self.settings.data_dir / "engine-state" / "facebook" / "redirect"
+        cmd = [
+            *prefix,
+            "--ignore-config",
+            "--verbose",
+            "--skip-download",
+            "--no-playlist",
+            "--force-generic-extractor",
+            "--print",
+            "%(webpage_url)s",
+        ]
+        if cookie_file:
+            cmd += ["--cookies", str(cookie_file)]
+        cmd.append(url)
+        try:
+            rc, out, err = await self._capture(cmd, state_dir=state, timeout=45)
+        except Exception as exc:
+            self.logger.info("facebook normalizer ytdlp error=%s", type(exc).__name__)
+            return []
+        finally:
+            if cookie_file:
+                cookie_file.unlink(missing_ok=True)
+        rows = self._facebook_candidates_from_ytdlp_output(out + "\n" + err)
+        self.logger.info(
+            "facebook normalizer ytdlp rc=%s candidates=%s",
+            rc,
+            len(rows),
+        )
+        return rows
 
     @staticmethod
     def _facebook_candidate_score(url: str, *, prefer_video: bool = False) -> int:
@@ -525,6 +608,14 @@ class ParseService:
                 found.extend(self._facebook_candidates_from_html(response.text))
             except Exception as exc:
                 self.logger.info("facebook normalizer variant=%s error=%s", label, type(exc).__name__)
+
+        # Facebook frequently gives plain HTTP clients a 400 page for share
+        # wrappers, while yt-dlp's generic extractor can still see the actual
+        # redirect target.  Use that capability only as a resolver, then hand
+        # the canonical URL to gallery-dl for the real media extraction.
+        if not found:
+            found.extend(await self._resolve_facebook_share_with_ytdlp(original))
+
         if found:
             found = list(dict.fromkeys(found))
             prefer_video = "/share/r/" in original.lower() or "/share/v/" in original.lower()

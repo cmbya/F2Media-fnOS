@@ -48,3 +48,37 @@ def test_html_candidates_extract_group_post_and_watch():
     rows = ParseService._facebook_candidates_from_html(body)
     assert "https://www.facebook.com/groups/851882484849213/posts/28938059365804815/" in rows
     assert "https://www.facebook.com/watch/?v=2300217217408960" in rows
+
+
+def test_permalink_php_keeps_story_and_owner_only():
+    src = (
+        "https://www.facebook.com/permalink.php?story_fbid=pfbid02Y9cMM42BkGjgpsavr1X2RSoYKUxyUVyBSYd7AWU4WLwCKD3gqMBicC79dnU594e4l"
+        "&id=1000123456789&__cft__[0]=abc#fragment"
+    )
+    assert ParseService._canonicalize_facebook_url(src) == (
+        "https://www.facebook.com/permalink.php?"
+        "story_fbid=pfbid02Y9cMM42BkGjgpsavr1X2RSoYKUxyUVyBSYd7AWU4WLwCKD3gqMBicC79dnU594e4l"
+        "&id=1000123456789"
+    )
+
+
+def test_ytdlp_redirect_output_extracts_group_post_and_reel():
+    text = """
+    [redirect] Following redirect to https://www.facebook.com/groups/851882484849213/permalink/28938059365804815/?__cft__[0]=abc
+    [redirect] Following redirect to https://www.facebook.com/reel/2300217217408960/?mibextid=abc
+    """
+    rows = ParseService._facebook_candidates_from_ytdlp_output(text)
+    assert "https://www.facebook.com/groups/851882484849213/posts/28938059365804815/" in rows
+    assert "https://www.facebook.com/watch/?v=2300217217408960" in rows
+
+
+def test_ytdlp_redirect_output_extracts_permalink_php():
+    text = (
+        "[redirect] Following redirect to "
+        "https://www.facebook.com/permalink.php?story_fbid=pfbidABC123&id=123456789&__cft__[0]=zzz"
+    )
+    rows = ParseService._facebook_candidates_from_ytdlp_output(text)
+    assert (
+        "https://www.facebook.com/permalink.php?story_fbid=pfbidABC123&id=123456789"
+        in rows
+    )
