@@ -88,11 +88,11 @@ $('#copyApiKey').onclick=()=>navigator.clipboard.writeText($('#apiKey').value).t
 function renderParserChoices(routes){const sel=$('#parseParser');const current=sel.value;const uniq=new Map();for(const route of routes||[])for(const item of route.items||[])if(!uniq.has(item.key))uniq.set(item.key,item.label);sel.innerHTML='<option value="">自动（按设置里的平台解析路由）</option>'+[...uniq].map(([k,v])=>`<option value="${esc(k)}">仅使用：${esc(v)}</option>`).join('');if([...uniq.keys()].includes(current))sel.value=current}
 async function loadParserChoices(){try{const rows=await api('/api/parser-routes');routeCache=rows;renderParserChoices(rows)}catch(e){console.warn(e)}}
 function routeItemHtml(item){
-const label=escapeHtml(item.label||item.key||'-');
+const label=esc(item.label||item.key||'-');
 const badges=`${item.recommended?'<span class="badge ok">推荐</span>':'<span class="badge">非推荐</span>'}${item.kind==='free_api'?'<span class="badge">免费API</span>':''}${item.kind==='free_api'&&!item.api_enabled?'<span class="badge bad">已停用</span>':''}`;
-const meta=item.kind==='free_api'?`<div class="routeMeta mono">free-api:${item.api_id??'-'}</div>`:`<div class="routeMeta mono">${escapeHtml(item.key||'-')}</div>`;
+const meta=item.kind==='free_api'?`<div class="routeMeta mono">free-api:${item.api_id??'-'}</div>`:`<div class="routeMeta mono">${esc(item.key||'-')}</div>`;
 const checkLabel=item.enabled?'启用':'关闭';
-return `<div class="routeItem" draggable="true" data-key="${escapeHtml(item.key)}">
+return `<div class="routeItem" draggable="true" data-key="${esc(item.key)}">
   <div class="routeCore">
     <div class="routeMain">
       <span class="routeHandle">☰</span>
