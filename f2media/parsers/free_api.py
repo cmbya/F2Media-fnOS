@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from ..core.cookie_format import cookie_header_for_engine
 from ..core.db import Database
 from .common import normalize_external_result
 
@@ -177,7 +178,7 @@ class FreeApiStore:
     def get(self, api_id: int) -> dict[str, Any] | None:
         return next((x for x in self.db.parser_apis(enabled_only=False) if int(x.get("id") or 0) == int(api_id)), None)
 
-    async def call_by_id(self, api_id: int, platform: str, source_url: str) -> dict[str, Any]:
+    async def call_by_id(self, api_id: int, platform: str, source_url: str, cookie: str | None = None) -> dict[str, Any]:
         config = self.get(api_id)
         if not config:
             raise RuntimeError("免费 API 配置不存在")
@@ -186,7 +187,7 @@ class FreeApiStore:
         if self._cooling_down(config):
             raise RuntimeError(f"{config.get('name')}: 429 冷却中")
         try:
-            return await self.call(config, platform, source_url)
+            return await self.call(config, platform, source_url, cookie)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429:
                 self._start_cooldown(config)
@@ -209,7 +210,7 @@ class FreeApiStore:
         if api_id:
             self._cooldown_until[api_id] = time.monotonic() + seconds
 
-    async def parse(self, platform: str, source_url: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    async def parse(self, platform: str, source_url: str, cookie: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         errors: list[str] = []
         for config in self.db.parser_apis(platform=platform, enabled_only=True):
             if not self._source_matches(config, source_url):
@@ -218,7 +219,7 @@ class FreeApiStore:
                 errors.append(f"{config['name']}: 429 冷却中")
                 continue
             try:
-                result = await self.call(config, platform, source_url)
+                result = await self.call(config, platform, source_url, cookie)
                 if result.get("ok"):
                     return result, config
                 errors.append(f"{config['name']}: 未返回媒体")
@@ -237,6 +238,7 @@ class FreeApiStore:
         source_url: str,
         *,
         add_platform_hint: bool = False,
+        cookie: str | None = None,
     ) -> Any:
         method = str(config.get("method") or "GET").upper()
         if method not in {"GET", "POST"}:
@@ -249,6 +251,9 @@ class FreeApiStore:
             str(k): str(v)
             for k, v in _expand_placeholders(dict(config.get("headers") or {}), platform, source_url).items()
         }
+        cookie_header = cookie_header_for_engine(cookie)
+        if cookie_header:
+            headers["Cookie"] = cookie_header
         timeout = max(3, min(int(config.get("timeout") or 15), 120))
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
             response = await (
@@ -262,8 +267,8 @@ class FreeApiStore:
             except ValueError as exc:
                 raise RuntimeError("API 返回的不是 JSON") from exc
 
-    async def call(self, config: dict[str, Any], platform: str, source_url: str) -> dict[str, Any]:
-        payload = await self._request(config, platform, source_url)
+    async def call(self, config: dict[str, Any], platform: str, source_url: str, cookie: str | None = None) -> dict[str, Any]:
+        payload = await self._request(config, platform, source_url, cookie=cookie)
         mapped = apply_mapping(payload, config.get("mapping") or {})
         result = normalize_external_result(mapped, platform, source_url, f"free-api:{config['name']}")
         if result["ok"]:
@@ -274,7 +279,7 @@ class FreeApiStore:
         # BugPK's aggregate endpoint may explicitly request a platform hint for
         # ambiguous x.com-style URLs. Retry once only when the server asks for it.
         if "platform" in msg.lower() or "platform 参数" in msg:
-            payload = await self._request(config, platform, source_url, add_platform_hint=True)
+            payload = await self._request(config, platform, source_url, add_platform_hint=True, cookie=cookie)
             mapped = apply_mapping(payload, config.get("mapping") or {})
             result = normalize_external_result(mapped, platform, source_url, f"free-api:{config['name']}")
             if result["ok"]:
