@@ -69,7 +69,9 @@ class ParserRouteStore:
                 "api_id": int(api["id"]),
                 "api_enabled": bool(api.get("enabled")),
                 "api_priority": int(api.get("priority") or 100),
-                "cookie_supported": False,
+                # 免费 API 也允许按平台、按解析器授权读取 Cookie。
+                # 默认仍由 cookie_enabled=False 和 Cookie 授权列表双重拦截。
+                "cookie_supported": True,
             })
         apis.sort(key=lambda x: (0 if x["recommended"] else 1, x["api_priority"], x["api_id"]))
 
