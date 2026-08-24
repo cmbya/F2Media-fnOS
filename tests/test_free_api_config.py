@@ -44,7 +44,7 @@ def test_existing_v020_database_gets_all_missing_builtin_apis_once(tmp_path):
 
     # Startup again must not create duplicates.
     FreeApiStore(db)
-    assert len(db.parser_apis()) == 5
+    assert len(db.parser_apis()) == 6
 
 
 def test_free_api_mapping_supports_replacement_provider_shapes():
