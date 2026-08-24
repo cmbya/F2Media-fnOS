@@ -11,7 +11,7 @@ class ParsedInput:
     platform: str
 
 
-URL_RE = re.compile(r"https?://[^\\s<>\\"'，。！？、；;）)\\]】》」』]+", re.I)
+URL_RE = re.compile(r"https?://[^\s<>"'，。！？、；;）)\]】》」』]+", re.I)
 
 DOMAIN_PLATFORM = {
     "douyin.com": "douyin",
@@ -38,6 +38,7 @@ def extract_urls(text: str) -> list[str]:
     urls = []
     for m in URL_RE.finditer(text or ""):
         # 抖音/快手分享文案会在短链后继续附带分享码，只保留真正的 URL。
+        u = m.group(0).rstrip(".,!?:;，。！？：；）)】》」』")
         if u not in urls:
             urls.append(u)
     return urls
