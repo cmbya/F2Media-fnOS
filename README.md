@@ -33,7 +33,7 @@ F2Media 使用“平台独立路由”的方式选择解析引擎。每个平台
 - `parse.shenzjd.com（Docker）`：调用 NAS 上的 parse.shenzjd.com 容器，默认地址为 `http://192.168.100.125:18083`。
 - `short_videos（Docker）`：调用 NAS 上的 short_videos HTTP 容器，默认地址为 `http://192.168.100.125:18084`。其接口路径使用项目原生的 `/api/douyin.php`、`/api/kuaishou.php`、`/api/xhsjx.php` 和 `/api/bilibili.php`。
 - `short_videos`：内置的本地 PHP 解析引擎，来自 [jiuhunwl/short_videos](https://github.com/jiuhunwl/short_videos)，支持抖音、快手、小红书和哔哩哔哩，不依赖公网聚合 API。
-- `free-api`：可在 WebUI 中编辑的免费 API，作为备用解析方式。
+- `free-api`：可在 WebUI 中编辑的免费 API，作为备用解析方式。已预置 IFPHP 聚合解析接口，接口地址为 `https://api-new.ifphp.com/api/svparse`，需要在 WebUI 填写 `X-API-Key` 后启用。
 - `gallery-dl`：适合图集和图片内容。
 - `yt-dlp`：通用视频解析引擎。
 - `x-cli`：X/Twitter 专用解析引擎。
