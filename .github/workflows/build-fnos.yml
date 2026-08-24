@@ -252,10 +252,24 @@ jobs:
             build/runtime/f2media-runtime/f2media-runtime >"$TMPROOT/runtime.log" 2>&1 &
           PID=$!
           trap 'kill "$PID" 2>/dev/null || true' EXIT
+          ready=false
           for i in $(seq 1 40); do
-            curl -fsS http://127.0.0.1:18083/api/health > "$TMPROOT/health.json" && break
+            if curl -fsS http://127.0.0.1:18083/api/health > "$TMPROOT/health.json"; then
+              ready=true
+              break
+            fi
+            if ! kill -0 "$PID" 2>/dev/null; then
+              echo "F2Media runtime exited before health check" >&2
+              cat "$TMPROOT/runtime.log" >&2 || true
+              exit 1
+            fi
             sleep 0.5
           done
+          if [ "$ready" != true ] || [ ! -s "$TMPROOT/health.json" ]; then
+            echo "F2Media runtime did not become healthy" >&2
+            cat "$TMPROOT/runtime.log" >&2 || true
+            exit 1
+          fi
           python - "$TMPROOT/health.json" "$VERSION" <<'PY'
           import json, sys
           obj=json.load(open(sys.argv[1]))
