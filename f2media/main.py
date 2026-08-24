@@ -9,7 +9,7 @@ from typing import Any
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse, PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import __version__
 from .core.app_settings import AppSettingsStore
