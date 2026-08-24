@@ -292,10 +292,11 @@ test -f "$INNER/ui/images/icon_256.png"
 test -f "$INNER/short-videos/adapter.php"
 test -f "$INNER/short-videos/BilibiliParser.php"
 "$INNER/bin/short_videos" --health | grep -q '"ok":true'
-set +e
-printf '%s\n' '{"platform":"invalid","url":"https://example.invalid/","cookie":""}' | "$INNER/bin/short_videos" > "$AUDIT/fpk-short-videos-stdin-check.json"
-rc=$?
-set -e
+if printf '%s\n' '{"platform":"invalid","url":"https://example.invalid/","cookie":""}' | "$INNER/bin/short_videos" > "$AUDIT/fpk-short-videos-stdin-check.json"; then
+  rc=0
+else
+  rc=$?
+fi
 test "$rc" = 2
 grep -q '不支持平台' "$AUDIT/fpk-short-videos-stdin-check.json"
 
