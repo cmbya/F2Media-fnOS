@@ -7,7 +7,7 @@ from ..core.cookie_format import cookie_header_for_engine
 from ..core.engine import engine_command
 from ..core.platforms import ParsedInput
 from ..core.redact import redact_text
-from .common import clean_url, normalize_external_result
+from .common import normalize_external_result
 
 SUPPORTED_PLATFORMS = {"douyin", "kuaishou", "xiaohongshu", "bilibili"}
 
@@ -38,14 +38,25 @@ class ShortVideosAdapter:
         rc, out, err = await capture._capture(
             [*prefix], state_dir=state, timeout=90, input_text=payload
         )
-        try:
-            response = json.loads(out.strip().splitlines()[-1])
-        except (json.JSONDecodeError, IndexError) as exc:
+        lines = [line.strip() for line in out.splitlines() if line.strip()]
+        response = None
+        for line in reversed(lines):
+            try:
+                candidate = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict):
+                response = candidate
+                break
+        if response is None:
+            detail = redact_text(err.strip()[-1200:] or out.strip()[-1200:])
+            if not detail:
+                detail = f"short_videos 进程没有输出 JSON（exit={rc}，请检查 PHP 运行时、cURL 扩展和启动器路径）"
             raise RuntimeError(
-                redact_text(err.strip()[-1200:] or out.strip()[-1200:] or "short_videos 没有返回 JSON")
-            ) from exc
-        if not isinstance(response, dict) or not response.get("ok"):
-            detail = response.get("error") if isinstance(response, dict) else "无效响应"
+                f"short_videos 返回无效：{detail}"
+            )
+        if not response.get("ok"):
+            detail = response.get("error") or f"进程失败（exit={rc}）"
             raise RuntimeError(redact_text(str(detail)))
 
         raw = response.get("data")

@@ -22,11 +22,12 @@
 .routeCore,.routeMain,.routeActions{width:100%;min-width:0}
 .routeActions{justify-content:flex-end}
 .cookiePermissions{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-.cookieEngineRow{display:grid;grid-template-columns:minmax(180px,1fr) auto auto;gap:10px;align-items:center;background:#0b1226;border:1px solid #2b3652;border-radius:9px;padding:9px 10px}
+.cookieEngineRow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:#0b1226;border:1px solid #2b3652;border-radius:9px;padding:9px 10px}
+.cookieEngineName{flex:1 1 100%;width:100%}
 .cookieEngineName{min-width:0}.cookieEngineName b{display:block;white-space:normal;overflow-wrap:anywhere}.cookieEngineName small{display:block;color:#8292af;margin-top:3px}
 .cookieGate{display:flex;align-items:center;gap:6px;white-space:nowrap;background:#121d36;border:1px solid #34405f;border-radius:8px;padding:7px 9px}
 .cookieGate input{width:auto;margin:0}
-@media(max-width:800px){.cookieEngineRow{grid-template-columns:1fr}.cookieGate{justify-content:flex-start}}
+@media(max-width:800px){.cookieEngineRow{display:flex}.cookieGate{flex:1 1 180px;justify-content:flex-start}}
 </style>
 </head>
 <body><div class="app">
