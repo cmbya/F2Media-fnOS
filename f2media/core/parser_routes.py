@@ -80,7 +80,7 @@ class ParserRouteStore:
         elif platform == "douyin":
             insert_at = 2
         elif platform in {"kuaishou", "bilibili", "xiaohongshu"}:
-            insert_at = 1
+            insert_at = 2
         elif platform in {"instagram", "youtube", "facebook", "tiktok"}:
             insert_at = 0
         else:
