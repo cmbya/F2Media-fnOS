@@ -181,10 +181,13 @@ jobs:
           set -e
           test "$rc" = 2
           grep -q '不支持平台' build-logs/short-videos-stdin-check.json
-          cmp f2media/parsers/short_videos_vendor/DouyinParser.php build/vendor/short_videos/api/douyin/DouyinParser.php
-          cmp f2media/parsers/short_videos_vendor/KuaishouSpider.php build/vendor/short_videos/api/kuaishou/KuaishouSpider.php
-          cmp f2media/parsers/short_videos_vendor/XiaohongshuParser.php build/vendor/short_videos/api/xiaohongshu/XiaohongshuParser.php
-          cmp f2media/parsers/short_videos_vendor/BilibiliParser.php build/vendor/short_videos/api/bilibili/BilibiliParser.php
+          # 上游目录只用于固定版本溯源；实际打包的是本仓库适配后的文件。
+          # 这些适配文件可能包含针对当前平台页面和 Cookie 行为的修复，
+          # 因此不能再与未修改的上游文件做 cmp。
+          cmp f2media/parsers/short_videos_vendor/DouyinParser.php build/short-videos/DouyinParser.php
+          cmp f2media/parsers/short_videos_vendor/KuaishouSpider.php build/short-videos/KuaishouSpider.php
+          cmp f2media/parsers/short_videos_vendor/XiaohongshuParser.php build/short-videos/XiaohongshuParser.php
+          cmp f2media/parsers/short_videos_vendor/BilibiliParser.php build/short-videos/BilibiliParser.php
 
       - name: Build x-cli
         run: |
