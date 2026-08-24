@@ -19,10 +19,10 @@ F2Media 使用“平台独立路由”的方式选择解析引擎。每个平台
 
 | 平台 | 默认顺序 |
 | --- | --- |
-| 抖音 | `douyin_parse → short_videos → free-api → gallery-dl → yt-dlp` |
-| 快手 | `short_videos → free-api → gallery-dl → yt-dlp` |
-| 哔哩哔哩 | `short_videos → free-api → gallery-dl → yt-dlp` |
-| 小红书 | `short_videos → free-api → gallery-dl → yt-dlp` |
+| 抖音 | `parse.shenzjd.com（Docker） → short_videos（Docker） → douyin_parse → short_videos → free-api → gallery-dl → yt-dlp` |
+| 快手 | `short_videos（Docker） → parse.shenzjd.com（Docker） → short_videos → free-api → gallery-dl → yt-dlp` |
+| 哔哩哔哩 | `short_videos（Docker） → parse.shenzjd.com（Docker） → short_videos → free-api → gallery-dl → yt-dlp` |
+| 小红书 | `short_videos（Docker） → parse.shenzjd.com（Docker） → short_videos → free-api → gallery-dl → yt-dlp` |
 | Instagram、Facebook、TikTok | `free-api → gallery-dl → yt-dlp` |
 | X/Twitter | `x-cli → free-api → gallery-dl → yt-dlp` |
 | YouTube | `free-api → yt-dlp → gallery-dl` |
@@ -30,6 +30,8 @@ F2Media 使用“平台独立路由”的方式选择解析引擎。每个平台
 其中：
 
 - `douyin_parse`：抖音专用解析引擎，需要抖音 Cookie。
+- `parse.shenzjd.com（Docker）`：调用 NAS 上的 parse.shenzjd.com 容器，默认地址为 `http://192.168.100.125:18083`。
+- `short_videos（Docker）`：调用 NAS 上的 short_videos HTTP 容器，默认地址为 `http://192.168.100.125:18084`。其接口路径使用项目原生的 `/api/douyin.php`、`/api/kuaishou.php`、`/api/xhsjx.php` 和 `/api/bilibili.php`。
 - `short_videos`：内置的本地 PHP 解析引擎，来自 [jiuhunwl/short_videos](https://github.com/jiuhunwl/short_videos)，支持抖音、快手、小红书和哔哩哔哩，不依赖公网聚合 API。
 - `free-api`：可在 WebUI 中编辑的免费 API，作为备用解析方式。
 - `gallery-dl`：适合图集和图片内容。
@@ -120,7 +122,7 @@ curl -X POST "http://NAS地址:18082/api/v1/parse-and-download" \
 POST /api/v1/parse-and-download
 ```
 
-请求体只需要传入视频链接。F2Media 会在 NAS 后台完成解析和下载，并返回任务编号。之后可以使用 `GET /api/v1/tasks/{task_id}` 查询状态。
+请求体只需要传入视频链接。抖音、快手等平台常见的“复制打开”整段分享文案会先自动提取其中真正的短链，再交给解析引擎。F2Media 会在 NAS 后台完成解析和下载，并返回任务编号。之后可以使用 `GET /api/v1/tasks/{task_id}` 查询状态。
 
 MCP 地址：
 
