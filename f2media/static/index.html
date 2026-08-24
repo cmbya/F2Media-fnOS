@@ -21,28 +21,20 @@
 .routeItem{display:block!important;width:100%;min-width:0}
 .routeCore,.routeMain,.routeActions{width:100%;min-width:0}
 .routeActions{justify-content:flex-end}
-.cookiePermissions{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-.cookieEngineRow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:#0b1226;border:1px solid #2b3652;border-radius:9px;padding:9px 10px}
-.cookieEngineName{flex:1 1 100%;width:100%}
-.cookieEngineName{min-width:0}.cookieEngineName b{display:block;white-space:normal;overflow-wrap:anywhere}.cookieEngineName small{display:block;color:#8292af;margin-top:3px}
-.cookieGate{display:flex;align-items:center;gap:6px;white-space:nowrap;background:#121d36;border:1px solid #34405f;border-radius:8px;padding:7px 9px}
-.cookieGate input{width:auto;margin:0}
-@media(max-width:800px){.cookieEngineRow{display:flex}.cookieGate{flex:1 1 180px;justify-content:flex-start}}
 </style>
 </head>
 <body><div class="app">
 <aside class="side"><div class="brand">F2Media</div><div class="nav">
-<button data-page="parse" class="active">解析</button><button data-page="tasks">最近任务</button><button data-page="cookies">Cookie</button><button data-page="settings">设置</button><button data-page="logs">日志</button><button data-page="doctor">自检</button>
+<button data-page="parse" class="active">解析</button><button data-page="tasks">最近任务</button><button data-page="settings">设置</button><button data-page="logs">日志</button><button data-page="doctor">自检</button>
 </div></aside>
 <main class="main">
 <section id="page-parse" class="page active"><h1>解析媒体</h1><p class="sub">这里只解析并展示媒体信息，不会下载媒体或创建最终作品目录。确认后再下载到 NAS。</p><div class="card"><textarea id="parseText" placeholder="粘贴一个或多个支持平台 URL，每行一个"></textarea><div class="row" style="margin-top:10px"><div class="grow"><select id="parseParser"><option value="">自动（按设置里的平台解析路由）</option></select></div><button class="btn" id="parseBtn">开始解析</button><span id="parseHint" class="muted"></span></div><div class="hint">临时指定解析器只影响本次解析，不会修改全局路由。</div></div><div id="parseResults"></div></section>
 <section id="page-tasks" class="page"><div class="row"><div class="grow"><h1>最近任务</h1><p class="sub">删除任务记录不会删除已下载媒体。</p></div><button class="btn secondary" id="refreshTasks">刷新</button><button class="btn danger" id="clearTasks">清空全部任务记录</button></div><div id="taskList"></div></section>
-<section id="page-cookies" class="page"><h1>Cookie</h1><p class="sub">支持 Netscape cookies.txt 或 Cookie Header。Cookie 内容加密保存，不会回显到页面和日志。Cookie 默认禁止所有解析引擎读取，必须同时打开解析路由里的引擎开关并在这里授权。</p><div id="cookieGrid" class="grid"></div></section>
 <section id="page-settings" class="page"><h1>设置</h1><p class="sub">下载目录、账户、REST/MCP API Key、平台解析路由、在线解析引擎与免费解析 API。</p>
 <div class="card"><h2>下载根目录</h2><div class="row"><input class="grow" id="downloadDir" placeholder="/vol2/1000/图库/解析"><button class="btn" id="saveDownloadDir">保存</button><button class="btn secondary" id="resetDownloadDir">恢复默认</button></div><div id="downloadDirInfo" class="muted" style="margin-top:8px"></div></div>
 <div class="card"><h2>WebUI 账户</h2><div class="split"><div class="field"><label>用户名</label><input id="webUsername"></div><div class="field"><label>新密码</label><input id="webPassword" type="password" placeholder="留空则不修改"></div></div><button class="btn" id="saveWebAuth">修改账户</button></div>
 <div class="card"><h2>REST API / MCP</h2><div class="field"><label>共用 API Key</label><div class="row"><input class="grow mono" id="apiKey" readonly><button class="btn secondary" id="copyApiKey">复制</button><button class="btn danger" id="regenApiKey">重新生成</button></div></div><div class="statgrid"><div class="stat"><span class="label">快捷指令接口</span><span id="shortcutUrl" class="value mono"></span></div><div class="stat"><span class="label">MCP</span><span id="mcpUrl" class="value mono"></span></div></div></div>
-<div class="card"><h2>平台解析路由</h2><p class="muted">每个平台都显示全部解析器。拖动或使用 ↑ / ↓ 调整顺序；关闭的解析器会被跳过。标记“推荐”的解析器是该平台默认启用项。</p><div id="routeGrid" class="routeGrid"></div></div>
+<div class="card"><h2>平台解析路由</h2><p class="muted">每个平台都显示全部解析器。拖动或使用 ↑ / ↓ 调整顺序；关闭的解析器会被跳过。只有路由卡片中勾选“允许读取 Cookie”的解析器才会获得该平台 Cookie，未勾选则不会读取。标记“推荐”的解析器是该平台默认启用项。</p><div id="routeGrid" class="routeGrid"></div></div>
 <div class="card"><h2>在线解析引擎</h2><p class="muted">更新前先下载到临时目录并运行 --version 自检，成功后原子替换；上一版本保留用于一键回滚。</p><div id="engineGrid" class="grid"></div></div>
 <div class="card"><div class="row"><div class="grow"><h2>免费解析 API</h2><div class="muted">可编辑免费解析源会按平台和优先级参与路由；接口失效时直接编辑、停用或新增即可。</div></div><button class="btn" id="newApi">新增接口</button></div><div id="apiConfigs"></div></div>
 </section>
@@ -65,7 +57,7 @@ let taskTimer=null, currentLogTask=null, apiEditing=null, routeCache=[];
 function toast(t){const el=$('#toast');el.textContent=t;el.classList.remove('hidden');setTimeout(()=>el.classList.add('hidden'),2600)}
 async function api(url,opt={}){const r=await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const ct=r.headers.get('content-type')||'';const data=ct.includes('json')?await r.json():await r.text();if(!r.ok)throw new Error(typeof data==='string'?data:(data.detail||JSON.stringify(data)));return data}
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function showPage(name){$$('.page').forEach(x=>x.classList.remove('active'));$$('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.page===name));$('#page-'+name).classList.add('active');if(name==='tasks')loadTasks();if(name==='cookies')loadCookies();if(name==='settings')loadSettings();if(name==='logs')loadLogs();if(name==='doctor')loadDoctor()}
+function showPage(name){$$('.page').forEach(x=>x.classList.remove('active'));$$('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.page===name));$('#page-'+name).classList.add('active');if(name==='tasks')loadTasks();if(name==='settings')loadSettings();if(name==='logs')loadLogs();if(name==='doctor')loadDoctor()}
 $$('.nav button').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
 
 $('#parseBtn').onclick=async()=>{const text=$('#parseText').value.trim();if(!text)return toast('请输入 URL');$('#parseBtn').disabled=true;$('#parseHint').textContent='解析中…';try{const parser=$('#parseParser').value||null;const rows=await api('/api/parse',{method:'POST',body:JSON.stringify({text,parser})});renderParse(rows)}catch(e){toast(e.message)}finally{$('#parseBtn').disabled=false;$('#parseHint').textContent=''}};
@@ -79,8 +71,6 @@ async function openTaskLog(id){currentLogTask=id;$('#modal').classList.remove('h
 async function refreshTaskLog(){if(!currentLogTask)return;try{$('#modalLog').textContent=await api(`/api/tasks/${currentLogTask}/log`)}catch(e){$('#modalLog').textContent=e.message}}
 $('#modalRefresh').onclick=refreshTaskLog;$('#modalClose').onclick=()=>{$('#modal').classList.add('hidden');currentLogTask=null};$('#modalCopy').onclick=()=>navigator.clipboard.writeText($('#modalLog').textContent).then(()=>toast('已复制'));
 function openFolder(path){if(!path)return toast('任务还没有输出目录');try{window.open('file://'+path,'_blank')}catch{}navigator.clipboard?.writeText(path);toast('已尝试打开目录，并复制 NAS 路径')}
-
-async function loadCookies(){try{const [rows,routes]=await Promise.all([api('/api/cookies'),api('/api/parser-routes')]);const map=Object.fromEntries(rows.map(x=>[x.platform,x]));const routeMap=Object.fromEntries(routes.map(x=>[x.platform,x]));const box=$('#cookieGrid');box.innerHTML='';for(const p of Object.keys(PLATFORM_LABEL)){const r=map[p]||{},route=routeMap[p]||{},options=(route.items||[]).filter(x=>x.cookie_supported&&x.enabled);const allowed=new Set(r.allowed_parsers||[]);const el=document.createElement('div');el.className='card';el.innerHTML=`<div class="row"><h2 class="grow">${PLATFORM_LABEL[p]}</h2><span class="badge ${r.configured?'ok':''}">${r.configured?'已配置':'未配置'}</span></div><div class="muted">${r.updated_at?'更新时间：'+esc(r.updated_at):'可粘贴 Netscape cookies.txt 或 Cookie Header'}</div><textarea class="cookieText" placeholder="Cookie 内容不会回显；粘贴新 Cookie 后保存"></textarea><div class="row"><input class="cookieFile" type="file" accept=".txt,text/plain" style="max-width:220px"><button class="btn saveCookie">保存 / 更新</button><button class="btn danger clearCookie">清除</button></div><hr><div><b>允许哪些解析引擎读取</b><div class="muted">这里是 Cookie 授权；还必须在“设置 → 平台解析路由”打开对应引擎的“允许读取 Cookie”。默认全部禁止。</div><div class="cookiePermissions">${options.length?options.map(x=>`<label class="checkitem"><input class="cookieParser" type="checkbox" value="${esc(x.key)}" ${allowed.has(x.key)?'checked':''}><span>${esc(x.label)}</span></label>`).join(''):'<span class="muted">该平台没有支持 Cookie 的内置解析引擎</span>'}</div><button class="btn secondary saveCookiePermissions">保存 Cookie 授权</button></div>`;const ta=el.querySelector('.cookieText');el.querySelector('.cookieFile').onchange=async ev=>{const f=ev.target.files?.[0];if(f)ta.value=await f.text()};el.querySelector('.saveCookie').onclick=async()=>{if(!ta.value.trim())return toast('请粘贴或上传 Cookie');try{await api(`/api/cookies/${p}`,{method:'PUT',body:JSON.stringify({cookie:ta.value})});ta.value='';toast('Cookie 已保存');loadCookies()}catch(e){toast(e.message)}};el.querySelector('.clearCookie').onclick=async()=>{if(confirm(`清除 ${PLATFORM_LABEL[p]} Cookie？`)){await api(`/api/cookies/${p}`,{method:'DELETE'});loadCookies()}};el.querySelector('.saveCookiePermissions').onclick=async()=>{try{const parsers=[...el.querySelectorAll('.cookieParser:checked')].map(x=>x.value);await api(`/api/cookies/${p}/permissions`,{method:'PUT',body:JSON.stringify({allowed_parsers:parsers})});toast('Cookie 授权已保存');loadCookies()}catch(e){toast(e.message)}};box.appendChild(el)}}catch(e){toast(e.message)}}
 
 async function loadSettings(){try{const [s,a,eng,configs,routes]=await Promise.all([api('/api/settings'),api('/api/auth/config'),api('/api/engines'),api('/api/parser-apis'),api('/api/parser-routes')]);$('#downloadDir').value=s.custom_download_dir||'';$('#downloadDirInfo').textContent=`当前：${s.download_dir} · ${s.download_dir_writable?'可写':'不可写'}`;$('#webUsername').value=a.username||'';$('#apiKey').value=a.api_key||'';$('#shortcutUrl').textContent=a.shortcut_url;$('#mcpUrl').textContent=a.mcp_url;routeCache=routes;renderEngines(eng);renderApiConfigs(configs);renderRoutes(routes);renderParserChoices(routes)}catch(e){toast(e.message)}}
 $('#saveDownloadDir').onclick=async()=>{try{await api('/api/settings',{method:'PUT',body:JSON.stringify({download_dir:$('#downloadDir').value})});toast('下载目录已保存');loadSettings()}catch(e){toast(e.message)}};$('#resetDownloadDir').onclick=async()=>{try{await api('/api/settings',{method:'PUT',body:JSON.stringify({download_dir:null})});toast('已恢复默认目录');loadSettings()}catch(e){toast(e.message)}};
@@ -132,42 +122,5 @@ async function loadLogs(){try{const [a,c]=await Promise.all([fetch('/api/logs',{
 async function loadDoctor(){try{$('#doctorData').textContent=JSON.stringify(await api('/api/doctor'),null,2)}catch(e){$('#doctorData').textContent=e.message}}$('#runDoctor').onclick=loadDoctor;
 
 loadParserChoices();
-const loadCookiesBase=loadCookies;
-loadCookies=async function(){
-  await loadCookiesBase();
-  try{
-    const routes=await api('/api/parser-routes');
-    const routeMap=Object.fromEntries(routes.map(x=>[x.platform,x]));
-    const cookieRows=await api('/api/cookies');
-    const cookieMap=Object.fromEntries(cookieRows.map(x=>[x.platform,x]));
-    for(const [platform,route] of Object.entries(routeMap)){
-      const card=[...document.querySelectorAll('#cookieGrid .card')].find(x=>x.querySelector('h2')?.textContent===PLATFORM_LABEL[platform]);
-      if(!card)continue;
-      const options=(route.items||[]).filter(x=>x.cookie_supported&&x.enabled);
-      const area=card.querySelector('.cookiePermissions');
-      const save=card.querySelector('.saveCookiePermissions');
-      if(!area||!save)continue;
-      area.innerHTML=options.length?options.map(item=>`<div class="cookieEngineRow"><div class="cookieEngineName"><b>${esc(item.label||item.key)}</b><small>${esc(item.key)} · 解析器当前${item.enabled?'已启用':'已关闭'}</small></div><label class="cookieGate"><input class="cookieAllow" type="checkbox" value="${esc(item.key)}"><span>允许此解析读取</span></label><label class="cookieGate"><input class="cookieEnable" type="checkbox" value="${esc(item.key)}"><span>启用 Cookie</span></label></div>`).join(''):'<span class="muted">该平台没有支持 Cookie 的内置解析引擎</span>';
-      const allowed=new Set((cookieMap[platform]||{}).allowed_parsers||[]);
-      area.querySelectorAll('.cookieEngineRow').forEach(row=>{
-        const key=row.querySelector('.cookieAllow').value;
-        row.querySelector('.cookieAllow').checked=allowed.has(key);
-        row.querySelector('.cookieEnable').checked=!!(route.items||[]).find(x=>x.key===key)?.cookie_enabled;
-      });
-      save.textContent='保存 Cookie 权限';
-      save.onclick=async()=>{
-        try{
-          const allow=[...area.querySelectorAll('.cookieAllow:checked')].map(x=>x.value);
-          const enabled=new Map([...area.querySelectorAll('.cookieEnable')].map(x=>[x.value,x.checked]));
-          const items=(route.items||[]).map(item=>({key:item.key,enabled:!!item.enabled,cookie_enabled:enabled.has(item.key)?enabled.get(item.key):false}));
-          await api(`/api/cookies/${platform}/permissions`,{method:'PUT',body:JSON.stringify({allowed_parsers:allow})});
-          await api(`/api/parser-routes/${platform}`,{method:'PUT',body:JSON.stringify({items})});
-          toast(`${PLATFORM_LABEL[platform]} Cookie 权限已保存`);
-          await loadCookies();
-        }catch(e){toast(e.message)}
-      };
-    }
-  }catch(e){toast(e.message)}
-}
 setInterval(()=>{if($('#page-tasks').classList.contains('active'))loadTasks()},3000);
 </script></body></html>
