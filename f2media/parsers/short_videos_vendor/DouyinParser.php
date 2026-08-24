@@ -59,7 +59,18 @@ class DouyinParser
         curl_setopt($ch, CURLOPT_ENCODING, 'gzip,deflate');
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
 
-        $headers = array_merge($this->headers, $customHeaders);
+        // 覆盖同名请求头，避免同时发送两个 User-Agent/Accept/Referer。
+        $headers = $this->headers;
+        foreach ($customHeaders as $customHeader) {
+            $headerName = strtolower(trim(strtok($customHeader, ':')));
+            if ($headerName === '') {
+                continue;
+            }
+            $headers = array_values(array_filter($headers, function ($header) use ($headerName) {
+                return strtolower(trim(strtok($header, ':'))) !== $headerName;
+            }));
+        }
+        $headers = array_merge($headers, $customHeaders);
         if ($this->cookie) {
             curl_setopt($ch, CURLOPT_COOKIE, $this->cookie);
         }
@@ -115,8 +126,8 @@ class DouyinParser
         curl_setopt($ch, CURLOPT_USERAGENT, $this->userAgent);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_HEADER, true);
-        curl_setopt($ch, CURLOPT_NOBODY, true);
+        curl_setopt($ch, CURLOPT_HTTPGET, true);
+        curl_setopt($ch, CURLOPT_MAXREDIRS, 10);
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
@@ -137,6 +148,9 @@ class DouyinParser
         if (preg_match('/\/video\/(\d+)/', $url, $matches)) {
             return $matches[1];
         }
+        if (preg_match('/\/share\/video\/(\d+)/', $url, $matches)) {
+            return $matches[1];
+        }
         if (preg_match('/modal_id=(\d+)/', $url, $matches)) {
             return $matches[1];
         }
@@ -145,9 +159,6 @@ class DouyinParser
         }
         // 尝试匹配纯数字 (防止某些短链解开后直接是ID)
         if (preg_match('/^(\d+)$/', $url, $matches)) {
-            return $matches[1];
-        }
-        if (preg_match('/note\/(\d+)/', $url, $matches)) {
             return $matches[1];
         }
         // 匹配 share/slides/xxx (新增)
@@ -183,10 +194,44 @@ class DouyinParser
             return $this->output(400, '链接格式错误，无法提取ID。处理后的链接: ' . $url);
         }
 
-        // 使用 dylive.php 中的 API 接口方式获取数据 (通常比页面解析更稳定)
-        // 注意：这里需要有效的 Cookie
-        $apiUrl = 'https://www.douyin.com/user/self?modal_id=' . $id . '&showTab=like';
-        $response = $this->request($apiUrl);
+        // 先请求作品详情接口。旧版本使用 user/self?modal_id，这个页面在
+        // 当前抖音 Web 端通常只返回壳页面，无法提取作品数据。
+        $apiUrl = 'https://www.douyin.com/aweme/v1/web/aweme/detail/?' . http_build_query([
+            'device_platform' => 'webapp',
+            'aid' => '6383',
+            'channel' => 'channel_pc_web',
+            'aweme_id' => $id,
+            'pc_client_type' => '1',
+            'version_code' => '190500',
+            'version_name' => '19.5.0',
+        ]);
+        $apiResponse = $this->request($apiUrl, ['Accept: application/json, text/plain, */*', 'Referer: https://www.douyin.com/']);
+        if ($apiResponse) {
+            $apiData = json_decode($apiResponse, true);
+            $detail = $apiData['aweme_detail'] ?? ($apiData['data']['aweme_detail'] ?? null);
+            if (is_array($detail)) {
+                return $this->formatData($detail);
+            }
+        }
+
+        // 兼容旧版 iesdouyin 作品接口。当前 Web 详情接口被风控时，
+        // 这个接口对部分公开作品仍会直接返回 item_list。
+        $legacyUrl = 'https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/?item_ids=' . urlencode($id);
+        $legacyResponse = $this->request($legacyUrl, [
+            'Accept: application/json, text/plain, */*',
+            'Referer: https://www.iesdouyin.com/share/video/' . $id . '/',
+        ]);
+        if ($legacyResponse) {
+            $legacyData = json_decode($legacyResponse, true);
+            $legacyDetail = $legacyData['item_list'][0] ?? null;
+            if (is_array($legacyDetail)) {
+                return $this->formatData($legacyDetail);
+            }
+        }
+
+        // 接口被风控时，回退到作品页面，而不是旧的 user/self 页面。
+        $pageUrl = 'https://www.douyin.com/video/' . $id;
+        $response = $this->request($pageUrl, ['Referer: https://www.douyin.com/']);
         if (!$response) {
             return $this->output(500, '请求失败');
         }
@@ -212,7 +257,7 @@ class DouyinParser
             // 尝试另一种模式 (douyin.php 中的模式)
             $pattern = '/window\._ROUTER_DATA\s*=\s*(.*?)\<\/script>/s';
             if (preg_match($pattern, $html, $matches)) {
-                $json = json_decode($matches[1], true);
+                $json = json_decode(rtrim(trim($matches[1]), ';'), true);
                 if (isset($json['loaderData'])) {
                     // 需要根据 loaderData 结构提取 videoDetail
                     // 这里的 key 可能是动态的，如 video_(id)/page
@@ -221,6 +266,10 @@ class DouyinParser
                             return $value['videoInfoRes']['item_list'][0];
                         }
                     }
+                }
+                $found = $this->findDetail($json);
+                if (is_array($found)) {
+                    return $found;
                 }
             }
             return null;
@@ -233,13 +282,37 @@ class DouyinParser
         }
 
         $jsonStr = substr($jsonStr, 0, $posEnd);
-        $jsonStr = urldecode($jsonStr); // 抖音 RENDER_DATA 通常经过 URL 编码
+        $jsonStr = html_entity_decode(urldecode($jsonStr), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $data = json_decode($jsonStr, true);
 
         if (isset($data['app']['videoDetail'])) {
             return $data['app']['videoDetail'];
         }
 
+        return $this->findDetail($data);
+    }
+
+    /** 从不同版本的页面 JSON 中递归寻找作品详情。 */
+    private function findDetail($value)
+    {
+        if (!is_array($value)) {
+            return null;
+        }
+        if (isset($value['aweme_detail']) && is_array($value['aweme_detail'])) {
+            return $value['aweme_detail'];
+        }
+        if (isset($value['videoInfoRes']['item_list'][0]) && is_array($value['videoInfoRes']['item_list'][0])) {
+            return $value['videoInfoRes']['item_list'][0];
+        }
+        if (isset($value['item_list'][0]) && is_array($value['item_list'][0])) {
+            return $value['item_list'][0];
+        }
+        foreach ($value as $child) {
+            $found = $this->findDetail($child);
+            if (is_array($found)) {
+                return $found;
+            }
+        }
         return null;
     }
 
@@ -313,14 +386,14 @@ class DouyinParser
         $result['cover'] = $cover;
 
         // 判断类型和提取资源
-        $images = $detail['images'] ?? [];
+        $images = $detail['images'] ?? ($detail['image_post_info']['images'] ?? []);
         if (!empty($images)) {
             // 图文/图集/实况
             $result['type'] = 'image';
 
             foreach ($images as $img) {
                 // 提取图片 URL
-                $imgUrl = $img['urlList'][0] ?? ($img['url_list'][0] ?? '');
+                $imgUrl = $img['urlList'][0] ?? ($img['url_list'][0] ?? ($img['download_url_list'][0] ?? ''));
                 if ($imgUrl) {
                     $result['images'][] = $imgUrl;
                 }
@@ -328,7 +401,7 @@ class DouyinParser
                 // 提取实况视频 (Live Photo)
                 // 抖音实况通常在 images 列表的 item 中包含 video 字段 (与普通图文不同)
                 $liveVideoUrl = null;
-                $videoInfo = $img['video'] ?? [];
+                $videoInfo = $img['video'] ?? ($img['live_photo_video'] ?? []);
 
                 // 1. 尝试 playAddr (对象数组结构，如 dylive.json)
                 if (isset($videoInfo['playAddr']) && is_array($videoInfo['playAddr'])) {
@@ -423,12 +496,12 @@ class DouyinParser
         $backup = [];
 
         // 尝试从 bitRateList 中提取
-        if (isset($detail['video']['bitRateList']) && is_array($detail['video']['bitRateList'])) {
-            $bitRateList = $detail['video']['bitRateList'];
+        $bitRateList = $detail['video']['bitRateList'] ?? ($detail['video']['bit_rate'] ?? []);
+        if (is_array($bitRateList)) {
 
             // 按 bitRate 降序排序
             usort($bitRateList, function ($a, $b) {
-                return ($b['bitRate'] ?? 0) - ($a['bitRate'] ?? 0);
+                return ($b['bitRate'] ?? ($b['bit_rate'] ?? 0)) - ($a['bitRate'] ?? ($a['bit_rate'] ?? 0));
             });
 
             // 遍历寻找合适的链接

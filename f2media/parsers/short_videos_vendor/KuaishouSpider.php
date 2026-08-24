@@ -54,7 +54,7 @@ class KuaishouSpider
      */
     private function extractFromInitState(string $pageContent): ?array
     {
-        $pattern = '/window\.INIT_STATE\s*=\s*(.*?)\<\/script>/s';
+        $pattern = '/window\.(?:INIT_STATE|__INITIAL_STATE__)\s*=\s*(.*?)\<\/script>/s';
         if (!preg_match($pattern, $pageContent, $matches)) {
             return null;
         }
@@ -183,21 +183,29 @@ class KuaishouSpider
      */
     private function extractFromApolloState(string $pageContent, string $contentId, string $contentType): ?array
     {
-        $pattern = '/window\.__APOLLO_STATE__\s*=\s*(.*?)\<\/script>/s';
-        if (!preg_match($pattern, $pageContent, $matches)) {
+        $apolloState = null;
+        foreach (['__APOLLO_STATE__', '__INITIAL_STATE__', '__NEXT_DATA__'] as $stateName) {
+            $pattern = $stateName === '__NEXT_DATA__'
+                ? '/<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)<\/script>/s'
+                : '/window\.' . preg_quote($stateName, '/') . '\s*=\s*(.*?)<\/script>/s';
+            if (!preg_match($pattern, $pageContent, $matches)) {
+                continue;
+            }
+            $cleanedData = preg_replace('/function\s*\([^)]*\)\s*{[^}]*}/', ':', $matches[1]);
+            $cleanedData = preg_replace('/,\s*(?=}|])/', '', $cleanedData);
+            $cleanedData = str_replace(';(:());', '', $cleanedData);
+            $candidate = json_decode(trim($cleanedData), true);
+            if (is_array($candidate)) {
+                $apolloState = $candidate;
+                break;
+            }
+        }
+        if (!is_array($apolloState)) {
             return null;
         }
 
-        $cleanedData = preg_replace('/function\s*\([^)]*\)\s*{[^}]*}/', ':', $matches[1]);
-        $cleanedData = preg_replace('/,\s*(?=}|])/', '', $cleanedData);
-        $cleanedData = str_replace(';(:());', '', $cleanedData);
-
-        $apolloState = json_decode($cleanedData, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return null;
-        }
-
-        $videoInfo = $apolloState['defaultClient'] ?? null;
+        $videoInfo = $apolloState['defaultClient']
+            ?? ($apolloState['apolloState']['defaultClient'] ?? $apolloState);
         if (empty($videoInfo)) {
             return null;
         }
@@ -205,8 +213,20 @@ class KuaishouSpider
         $key = "VisionVideoDetailPhoto:{$contentId}";
         $videoData = $videoInfo[$key] ?? null;
         if (empty($videoData)) {
+            // 新版页面的缓存键可能带有额外参数或使用不同前缀，
+            // 但通常仍会包含 photoId；不要只依赖固定 Apollo 键名。
+            foreach ($videoInfo as $candidateKey => $candidateValue) {
+                if (is_array($candidateValue) && strpos((string)$candidateKey, $contentId) !== false) {
+                    $videoData = $candidateValue;
+                    break;
+                }
+            }
+        }
+        if (empty($videoData)) {
             return null;
         }
+
+        $photoData = is_array($videoData['photo'] ?? null) ? $videoData['photo'] : $videoData;
 
         $authorData = null;
         foreach ($videoInfo as $k => $v) {
@@ -218,9 +238,14 @@ class KuaishouSpider
 
         $videoUrl = '';
         if ($contentType === 'long-video') {
-            $videoUrl = $videoData['manifestH265']['json']['adaptationSet'][0]['representation'][0]['backupUrl'][0] ?? '';
+            $videoUrl = $photoData['manifestH265']['json']['adaptationSet'][0]['representation'][0]['backupUrl'][0]
+                ?? ($photoData['manifest']['adaptationSet'][0]['representation'][0]['url'] ?? '')
+                ?? ($photoData['mainMvUrls'][0]['url'] ?? '')
+                ?? ($photoData['photoUrl'] ?? '');
         } else {
-            $videoUrl = $videoData['photoUrl'] ?? '';
+            $videoUrl = $photoData['photoUrl']
+                ?? ($photoData['coverUrls'][0]['url'] ?? '')
+                ?? ($photoData['mainMvUrls'][0]['url'] ?? '');
         }
 
         if (empty($videoUrl)) {
@@ -229,7 +254,7 @@ class KuaishouSpider
 
         // 根据 contentType 确定资源类型
         $type = 'video';
-        if ($contentType === 'photo') {
+        if (in_array($contentType, ['photo', 'photo-query'], true)) {
             $type = 'image';
         }
 
@@ -240,8 +265,8 @@ class KuaishouSpider
                 'type' => $type,
                 'author' => $authorData['name'] ?? '',
                 'avatar' => $authorData['headerUrl'] ?? '', // APOLLO STATE 可能字段不同，这里做个假设，或者暂时留空
-                'title' => $videoData['caption'] ?? '',
-                'cover' => $videoData['coverUrl'] ?? '',
+                'title' => $photoData['caption'] ?? '',
+                'cover' => $photoData['coverUrl'] ?? ($photoData['coverUrls'][0]['url'] ?? ''),
                 'url' => $videoUrl,
                 // APOLLO STATE 下其他字段可能需要进一步抓包确认，暂时保持基础信息
             ]
@@ -251,12 +276,42 @@ class KuaishouSpider
     private function filterMediaData(array $data): array
     {
         $filtered = [];
-        foreach ($data as $key => $value) {
-            if (strpos($key, 'tusjoh') === 0 && (isset($value['fid']) || isset($value['photo']))) {
-                $filtered[$key] = $value;
+        $this->collectMediaData($data, $filtered);
+        return $filtered;
+    }
+
+    /** 递归兼容不同版本页面状态树中的媒体对象。 */
+    private function collectMediaData($value, array &$filtered, string $path = 'root'): void
+    {
+        if (!is_array($value)) {
+            return;
+        }
+
+        if (isset($value['photo']) && is_array($value['photo'])) {
+            $photo = $value['photo'];
+            if (isset($value['fid']) || $this->looksLikeMediaPhoto($photo)) {
+                $filtered[$path] = $value;
+            }
+        } elseif ($this->looksLikeMediaPhoto($value)) {
+            $filtered[$path] = ['photo' => $value];
+        }
+
+        foreach ($value as $key => $child) {
+            if (is_array($child)) {
+                $this->collectMediaData($child, $filtered, $path . '.' . $key);
             }
         }
-        return $filtered;
+    }
+
+    private function looksLikeMediaPhoto(array $value): bool
+    {
+        return isset($value['mainMvUrls'])
+            || isset($value['coverUrls'])
+            || isset($value['photoType'])
+            || isset($value['photoUrl'])
+            || isset($value['manifest'])
+            || isset($value['manifestH265'])
+            || isset($value['ext_params']);
     }
 
     private function getRedirectedUrl(string $url): ?string
@@ -264,7 +319,9 @@ class KuaishouSpider
         $ch = curl_init();
         curl_setopt_array($ch, [
             CURLOPT_URL => $url,
-            CURLOPT_NOBODY => true,
+            // 分享短链通常不对 HEAD 返回最终页面；必须用 GET 跟随跳转。
+            CURLOPT_HTTPGET => true,
+            CURLOPT_MAXREDIRS => 10,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_SSL_VERIFYPEER => false,
@@ -321,7 +378,8 @@ class KuaishouSpider
         $patterns = [
             'short-video' => '/short-video\/([^?]+)/',
             'long-video' => '/long-video\/([^?]+)/',
-            'photo' => '/photo\/([^?]+)/'
+            'photo' => '/photo\/([^?]+)/',
+            'photo-query' => '/(?:photoId|photo_id)=([^&]+)/'
         ];
         foreach ($patterns as $type => $pattern) {
             if (preg_match($pattern, $url, $matches)) {
