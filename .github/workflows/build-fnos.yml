@@ -6,7 +6,7 @@ on:
       version:
         description: "F2Media 版本（X.Y.Z）"
         required: true
-        default: "0.5.2"
+        default: "0.5.3"
         type: string
 
 permissions:
@@ -137,7 +137,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/bin
-          (cd build/vendor/x-cli && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$GITHUB_WORKSPACE/build/bin/x-cli" ./cmd/x)
+          XCLI_SEMVER="${XCLI_VERSION#v}"
+          XCLI_COMMIT="$(git -C build/vendor/x-cli rev-parse --short HEAD)"
+          XCLI_DATE="$(git -C build/vendor/x-cli show -s --format=%cI HEAD)"
+          (cd build/vendor/x-cli && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -ldflags "-s -w -X github.com/tamnd/x-cli/cli.Version=${XCLI_SEMVER} -X github.com/tamnd/x-cli/cli.Commit=${XCLI_COMMIT} -X github.com/tamnd/x-cli/cli.Date=${XCLI_DATE}" \
+            -o "$GITHUB_WORKSPACE/build/bin/x-cli" ./cmd/x)
           chmod +x build/bin/x-cli
           (build/bin/x-cli version || build/bin/x-cli --version) | tee build-logs/x-cli-version.txt
 
