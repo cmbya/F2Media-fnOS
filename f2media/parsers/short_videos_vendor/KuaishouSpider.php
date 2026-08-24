@@ -304,7 +304,6 @@ class KuaishouSpider
         curl_setopt_array($ch, [
             CURLOPT_HEADER => false,
             CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => false,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_AUTOREFERER => true,
