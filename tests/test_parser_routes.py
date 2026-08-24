@@ -53,7 +53,7 @@ def test_supported_free_api_precedes_douyin_local_fallbacks(tmp_path):
     api_id = _seed(db, "dy-api", ["douyin"], 10)
     store = ParserRouteStore(db)
     enabled = store.enabled_keys("douyin")
-    assert enabled[:4] == ["parse_shenzjd", "douyin_parse", f"free-api:{api_id}", "short_videos"]
+    assert enabled[:4] == ["parse_shenzjd", f"free-api:{api_id}", "douyin_parse", "short_videos"]
     assert "douyin_parse" in enabled
 
 
