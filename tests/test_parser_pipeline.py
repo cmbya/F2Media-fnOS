@@ -80,7 +80,7 @@ def test_filename_sanitizer_keeps_readable_unicode():
 
 def test_pipeline_order_is_user_configurable():
     from f2media.core.parser_routes import DEFAULT_BUILTIN_ORDER
-    assert DEFAULT_BUILTIN_ORDER["twitter"][:3] == ["x-cli", "gallery-dl", "yt-dlp"]
+    assert DEFAULT_BUILTIN_ORDER["twitter"][:4] == ["parse_shenzjd", "x-cli", "gallery-dl", "yt-dlp"]
     assert DEFAULT_BUILTIN_ORDER["facebook"] == ["gallery-dl", "yt-dlp"]
-    assert DEFAULT_BUILTIN_ORDER["douyin"] == ["douyin_parse", "short_videos", "gallery-dl", "yt-dlp"]
-    assert DEFAULT_BUILTIN_ORDER["bilibili"] == ["short_videos", "gallery-dl", "yt-dlp"]
+    assert DEFAULT_BUILTIN_ORDER["douyin"] == ["parse_shenzjd", "short_videos_docker", "douyin_parse", "short_videos", "gallery-dl", "yt-dlp"]
+    assert DEFAULT_BUILTIN_ORDER["bilibili"] == ["short_videos_docker", "parse_shenzjd", "short_videos", "gallery-dl", "yt-dlp"]
