@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import uuid
+from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse, urlunparse
@@ -77,29 +78,12 @@ class ParseService:
 
         source_item = item
         item = self._normalize_routing_item(item)
-        cookie, _ = self.cookies.get(item.platform)
-        cookie_header = cookie_header_for_engine(cookie)
-        if item.platform == "facebook":
-            canonical = await self._normalize_facebook_url(item.url, cookie_header)
-            if canonical != item.url:
-                item = ParsedInput(url=canonical, platform=item.platform)
-
-        attempts: list[dict[str, Any]] = []
-        self.logger.info(
-            "parse start platform=%s url=%s cookie_configured=%s cookie_format=%s parser=%s",
-            item.platform, source_item.url, bool(cookie),
-            "netscape" if cookie and cookie.lstrip().startswith("# Netscape") else ("header" if cookie else "none"),
-            parser or "auto",
-        )
-        if item.url != source_item.url:
-            self.logger.info("parse normalized platform=%s source=%s canonical=%s", item.platform, source_item.url, item.url)
-
         available = {x["key"] for x in self.routes.parser_options(item.platform)}
         if parser:
             if parser not in available:
                 return {
                     "ok": False, "platform": item.platform, "source_url": source_item.url,
-                    "canonical_url": item.url, "attempts": [], "cookie_configured": bool(cookie),
+                    "canonical_url": item.url, "attempts": [], "cookie_configured": False,
                     "error": f"指定解析器不存在: {parser}",
                 }
             pipeline = [parser]
@@ -109,20 +93,48 @@ class ParseService:
         if not pipeline:
             return {
                 "ok": False, "platform": item.platform, "source_url": source_item.url,
-                "canonical_url": item.url, "attempts": [], "cookie_configured": bool(cookie),
+                "canonical_url": item.url, "attempts": [], "cookie_configured": False,
                 "error": "该平台没有启用任何解析器，请到 设置 → 平台解析路由 启用",
             }
 
+        # URL normalization is part of the selected parser pipeline. It may use
+        # Cookie only if at least one selected engine has both permission gates open.
+        normalizer_parser = next(
+            (key for key in pipeline if self.routes.cookie_enabled(item.platform, key)), None
+        )
+        normalizer_cookie, _ = (
+            self.cookies.get_for_parser(item.platform, normalizer_parser, True)
+            if normalizer_parser else (None, None)
+        )
+        cookie_header = cookie_header_for_engine(normalizer_cookie)
+        if item.platform == "facebook":
+            canonical = await self._normalize_facebook_url(item.url, cookie_header, normalizer_cookie)
+            if canonical != item.url:
+                item = ParsedInput(url=canonical, platform=item.platform)
+
+        attempts: list[dict[str, Any]] = []
+        self.logger.info(
+            "parse start platform=%s url=%s cookie_configured=%s cookie_format=%s parser=%s",
+            item.platform, source_item.url, bool(normalizer_cookie),
+            "netscape" if normalizer_cookie and normalizer_cookie.lstrip().startswith("# Netscape") else ("header" if normalizer_cookie else "none"),
+            parser or "auto",
+        )
+        if item.url != source_item.url:
+            self.logger.info("parse normalized platform=%s source=%s canonical=%s", item.platform, source_item.url, item.url)
+
         for parser_key in pipeline:
+            parser_cookie, _ = self.cookies.get_for_parser(
+                item.platform, parser_key, self.routes.cookie_enabled(item.platform, parser_key)
+            )
             try:
-                raw_result = await self._call_parser(parser_key, item, cookie)
+                raw_result = await self._call_parser(parser_key, item, parser_cookie)
                 result = await self._strict_media_result(raw_result)
                 if not result.get("ok"):
                     raise RuntimeError("没有取得可下载媒体资源")
                 attempts.append({"parser": parser_key, "ok": True})
                 result["attempts"] = attempts
                 result["route_parser"] = parser_key
-                result["cookie_configured"] = bool(cookie)
+                result["cookie_configured"] = bool(parser_cookie)
                 result["title"] = safe_title(result.get("title"), self._fallback_title(source_item))
                 result["source_url"] = source_item.url
                 if item.url != source_item.url:
@@ -151,7 +163,7 @@ class ParseService:
             "source_url": source_item.url,
             "canonical_url": item.url if item.url != source_item.url else source_item.url,
             "attempts": attempts,
-            "cookie_configured": bool(cookie),
+            "cookie_configured": bool(normalizer_cookie),
             "error": error or "所有解析器均失败",
         }
 
@@ -163,11 +175,11 @@ class ParseService:
         if parser_key == "x-cli":
             if item.platform != "twitter":
                 raise RuntimeError("x-cli 只支持 X / Twitter")
-            return await self._xcli_probe(item)
+            return await self._xcli_probe(item, cookie)
         if parser_key == "gallery-dl":
-            return await self._gallery_probe(item)
+            return await self._gallery_probe(item, cookie)
         if parser_key == "yt-dlp":
-            return await self._ytdlp_probe(item)
+            return await self._ytdlp_probe(item, cookie)
         if parser_key.startswith("free-api:"):
             try:
                 api_id = int(parser_key.split(":", 1)[1])
@@ -188,11 +200,34 @@ class ParseService:
                 return ParsedInput(url=f"https://www.douyin.com/video/{modal_id}", platform=item.platform)
         return item
 
-    async def _xcli_probe(self, item: ParsedInput) -> dict[str, Any]:
+    async def _xcli_probe(self, item: ParsedInput, cookie: str | None) -> dict[str, Any]:
         prefix = engine_command("x-cli")
         if not prefix:
             raise RuntimeError("x-cli 不可用")
-        state = self.settings.data_dir / "engine-state" / "twitter" / "x-cli"
+        # Keep public and authenticated state completely separate. This prevents
+        # a previously imported X session from being reused when Cookie access
+        # is later disabled for x-cli.
+        if cookie:
+            header = cookie_header_for_engine(cookie) or ""
+            jar = SimpleCookie()
+            try:
+                jar.load(header)
+            except Exception:
+                jar = SimpleCookie()
+            auth_token = jar.get("auth_token").value if jar.get("auth_token") else ""
+            ct0 = jar.get("ct0").value if jar.get("ct0") else ""
+            if auth_token and ct0:
+                state = self.settings.data_dir / "engine-state" / "twitter" / "x-cli-session"
+                rc, _, err = await self._capture(
+                    [*prefix, "auth", "import", "--auth-token", auth_token, "--ct0", ct0],
+                    state_dir=state, timeout=30,
+                )
+                if rc != 0:
+                    raise RuntimeError(redact_text(err.strip()[-1200:] or "x-cli Cookie 导入失败"))
+            else:
+                state = self.settings.data_dir / "engine-state" / "twitter" / "x-cli-public"
+        else:
+            state = self.settings.data_dir / "engine-state" / "twitter" / "x-cli-public"
         rc, out, err = await self._capture([*prefix, "media", item.url, "-o", "json"], state_dir=state, timeout=75)
         if rc != 0:
             raise RuntimeError(redact_text(err.strip()[-1800:] or out.strip()[-800:] or f"x-cli exit={rc}"))
@@ -225,8 +260,7 @@ class ParseService:
             raise RuntimeError(f"解析命令超过 {timeout}s")
         return proc.returncode or 0, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
-    async def _cookie_file(self, item: ParsedInput, suffix: str) -> Path | None:
-        cookie, _ = self.cookies.get(item.platform)
+    async def _cookie_file(self, item: ParsedInput, suffix: str, cookie: str | None) -> Path | None:
         if not cookie:
             return None
         jar = netscape_for_engine(item.platform, cookie)
@@ -237,12 +271,12 @@ class ParseService:
         path.chmod(0o600)
         return path
 
-    async def _ytdlp_probe(self, item: ParsedInput) -> dict[str, Any]:
+    async def _ytdlp_probe(self, item: ParsedInput, cookie: str | None) -> dict[str, Any]:
         prefix = engine_command("yt-dlp")
         if not prefix:
             raise RuntimeError("yt-dlp 不可用")
         state = self.settings.data_dir / "engine-state" / item.platform / "parse"
-        cookie_file = await self._cookie_file(item, "yt")
+        cookie_file = await self._cookie_file(item, "yt", cookie)
         cmd = [
             *prefix, "--ignore-config", "--no-warnings", "--skip-download", "--dump-single-json",
             "--no-playlist", "-f", YTDLP_COMPAT_FORMAT,
@@ -320,12 +354,12 @@ class ParseService:
             "download_plan": {"strategy": "yt-dlp", "format": YTDLP_COMPAT_FORMAT},
         }
 
-    async def _gallery_probe(self, item: ParsedInput) -> dict[str, Any]:
+    async def _gallery_probe(self, item: ParsedInput, cookie: str | None) -> dict[str, Any]:
         prefix = engine_command("gallery-dl")
         if not prefix:
             raise RuntimeError("gallery-dl 不可用")
         state = self.settings.data_dir / "engine-state" / item.platform / "parse"
-        cookie_file = await self._cookie_file(item, "gdl")
+        cookie_file = await self._cookie_file(item, "gdl", cookie)
         conf_path = self.settings.temp_dir / f"parse-{uuid.uuid4().hex[:10]}-gdl.json"
         # Facebook URLs are normalized once in parse_item(). Re-running the
         # share resolver here causes duplicate network requests and can turn a
@@ -334,7 +368,7 @@ class ParseService:
             target = item.url
         else:
             target = await self._normalize_share_url(
-                item, cookie_header_for_engine(self.cookies.get(item.platform)[0])
+                item, cookie_header_for_engine(cookie)
             )
         rows: list[dict[str, Any]] = []
         media: list[dict[str, Any]] = []
@@ -520,12 +554,12 @@ class ParseService:
                         candidates.append(canonical)
         return candidates
 
-    async def _resolve_facebook_share_with_ytdlp(self, url: str) -> list[str]:
+    async def _resolve_facebook_share_with_ytdlp(self, url: str, cookie: str | None) -> list[str]:
         prefix = engine_command("yt-dlp")
         if not prefix:
             return []
         item = ParsedInput(url=url, platform="facebook")
-        cookie_file = await self._cookie_file(item, "fb-redirect")
+        cookie_file = await self._cookie_file(item, "fb-redirect", cookie)
         state = self.settings.data_dir / "engine-state" / "facebook" / "redirect"
         cmd = [
             *prefix,
@@ -577,7 +611,9 @@ class ParseService:
             return 75
         return 10
 
-    async def _normalize_facebook_url(self, url: str, cookie_header: str | None) -> str:
+    async def _normalize_facebook_url(
+        self, url: str, cookie_header: str | None, cookie: str | None = None
+    ) -> str:
         original = self._canonicalize_facebook_url(url)
         if "/share/" not in original.lower():
             return original
@@ -614,7 +650,7 @@ class ParseService:
         # redirect target.  Use that capability only as a resolver, then hand
         # the canonical URL to gallery-dl for the real media extraction.
         if not found:
-            found.extend(await self._resolve_facebook_share_with_ytdlp(original))
+            found.extend(await self._resolve_facebook_share_with_ytdlp(original, cookie))
 
         if found:
             found = list(dict.fromkeys(found))
@@ -627,7 +663,7 @@ class ParseService:
 
     async def _normalize_share_url(self, item: ParsedInput, cookie_header: str | None) -> str:
         if item.platform == "facebook":
-            return await self._normalize_facebook_url(item.url, cookie_header)
+            return await self._normalize_facebook_url(item.url, cookie_header, None)
         if item.platform not in {"tiktok", "bilibili", "kuaishou", "xiaohongshu", "douyin"}:
             return item.url
         headers = {"User-Agent": "Mozilla/5.0 Chrome/143 Safari/537.36"}

@@ -83,6 +83,11 @@ class ParseAndDownloadRequest(BaseModel):
 class CookieRequest(BaseModel):
     cookie: str
     extra: str | None = None
+    allowed_parsers: list[str] | None = None
+
+
+class CookiePermissionRequest(BaseModel):
+    allowed_parsers: list[str] = Field(default_factory=list)
 
 
 class SettingsRequest(BaseModel):
@@ -121,6 +126,7 @@ class ParserApiTestRequest(BaseModel):
 class ParserRouteItemRequest(BaseModel):
     key: str
     enabled: bool = True
+    cookie_enabled: bool = False
 
 
 class ParserRouteRequest(BaseModel):
@@ -345,12 +351,29 @@ def cookie_status():
 def save_cookie(platform: str, req: CookieRequest):
     if platform not in PLATFORMS:
         raise HTTPException(400, "unsupported platform")
+    allowed = req.allowed_parsers
+    if allowed is not None:
+        available = {x["key"] for x in routes.parser_options(platform)}
+        allowed = [x for x in dict.fromkeys(allowed) if x in available]
     try:
-        cookies.save(platform, req.cookie, req.extra)
+        cookies.save(platform, req.cookie, req.extra, allowed)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     logger.info("Cookie updated platform=%s extra=%s", platform, bool(req.extra))
     return {"ok": True, "platform": platform}
+
+
+@web.put("/cookies/{platform}/permissions")
+def set_cookie_permissions(platform: str, req: CookiePermissionRequest):
+    if platform not in PLATFORMS:
+        raise HTTPException(400, "unsupported platform")
+    if not db.get_cookie(platform):
+        raise HTTPException(400, "请先保存该平台 Cookie，再设置读取授权")
+    available = {x["key"] for x in routes.parser_options(platform)}
+    allowed = [x for x in dict.fromkeys(req.allowed_parsers) if x in available]
+    cookies.set_permissions(platform, allowed)
+    logger.info("Cookie permissions updated platform=%s parsers=%s", platform, allowed)
+    return {"ok": True, "platform": platform, "allowed_parsers": allowed}
 
 
 @web.delete("/cookies/{platform}")

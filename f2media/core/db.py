@@ -59,6 +59,7 @@ class Database:
                     platform TEXT PRIMARY KEY,
                     cookie_cipher BLOB NOT NULL,
                     extra_cipher BLOB,
+                    allowed_parsers_json TEXT NOT NULL DEFAULT '[]',
                     updated_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS app_settings (
@@ -100,6 +101,9 @@ class Database:
             self._ensure_column(c, "tasks", "title", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(c, "tasks", "progress", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(c, "tasks", "source_key", "TEXT NOT NULL DEFAULT ''")
+            # Cookie access is deny-by-default. Existing cookies therefore migrate
+            # with an empty parser allow-list until the user explicitly grants access.
+            self._ensure_column(c, "cookies", "allowed_parsers_json", "TEXT NOT NULL DEFAULT '[]'")
         try:
             os.chmod(self.path, 0o600)
         except OSError:
@@ -198,14 +202,25 @@ class Database:
             row = c.execute("SELECT result_json FROM parse_results WHERE id=?", (parse_id,)).fetchone()
         return json.loads(row["result_json"]) if row else None
 
-    def put_cookie(self, platform: str, cookie_cipher: bytes, extra_cipher: bytes | None) -> None:
+    def put_cookie(
+        self,
+        platform: str,
+        cookie_cipher: bytes,
+        extra_cipher: bytes | None,
+        allowed_parsers: list[str] | None = None,
+    ) -> None:
         with self._lock, self._conn() as c:
+            if allowed_parsers is None:
+                existing = c.execute(
+                    "SELECT allowed_parsers_json FROM cookies WHERE platform=?", (platform,)
+                ).fetchone()
+                allowed_parsers = json.loads(existing["allowed_parsers_json"] or "[]") if existing else []
             c.execute(
-                """INSERT INTO cookies(platform,cookie_cipher,extra_cipher,updated_at)
-                VALUES(?,?,?,?) ON CONFLICT(platform) DO UPDATE SET
+                """INSERT INTO cookies(platform,cookie_cipher,extra_cipher,allowed_parsers_json,updated_at)
+                VALUES(?,?,?,?,?) ON CONFLICT(platform) DO UPDATE SET
                 cookie_cipher=excluded.cookie_cipher, extra_cipher=excluded.extra_cipher,
-                updated_at=excluded.updated_at""",
-                (platform, cookie_cipher, extra_cipher, now_iso()),
+                allowed_parsers_json=excluded.allowed_parsers_json, updated_at=excluded.updated_at""",
+                (platform, cookie_cipher, extra_cipher, json.dumps(allowed_parsers or [], ensure_ascii=False), now_iso()),
             )
 
     def get_cookie(self, platform: str) -> sqlite3.Row | None:
@@ -214,8 +229,20 @@ class Database:
 
     def cookie_statuses(self) -> list[dict[str, Any]]:
         with self._lock, self._conn() as c:
-            rows = c.execute("SELECT platform, updated_at, extra_cipher IS NOT NULL AS has_extra FROM cookies ORDER BY platform").fetchall()
-        return [dict(r) for r in rows]
+            rows = c.execute("SELECT platform, updated_at, extra_cipher IS NOT NULL AS has_extra, allowed_parsers_json FROM cookies ORDER BY platform").fetchall()
+        out = []
+        for row in rows:
+            item = dict(row)
+            item["allowed_parsers"] = json.loads(item.pop("allowed_parsers_json") or "[]")
+            out.append(item)
+        return out
+
+    def set_cookie_permissions(self, platform: str, allowed_parsers: list[str]) -> None:
+        with self._lock, self._conn() as c:
+            c.execute(
+                "UPDATE cookies SET allowed_parsers_json=?, updated_at=? WHERE platform=?",
+                (json.dumps(allowed_parsers, ensure_ascii=False), now_iso(), platform),
+            )
 
     def delete_cookie(self, platform: str) -> None:
         with self._lock, self._conn() as c:

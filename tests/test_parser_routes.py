@@ -89,3 +89,31 @@ def test_x_cli_default_and_facebook_uses_supported_engines(tmp_path):
     store = ParserRouteStore(_db(tmp_path))
     assert store.enabled_keys("twitter")[0] == "x-cli"
     assert store.enabled_keys("facebook") == ["gallery-dl", "yt-dlp"]
+
+
+def test_cookie_engine_switch_is_deny_by_default_and_persisted(tmp_path):
+    store = ParserRouteStore(_db(tmp_path))
+    current = store.get("douyin")["items"]
+    assert all(not x["cookie_enabled"] for x in current)
+
+    wanted = [
+        {"key": x["key"], "enabled": x["enabled"], "cookie_enabled": x["key"] == "yt-dlp"}
+        for x in current
+    ]
+    saved = store.save("douyin", wanted)
+    rows = {x["key"]: x for x in saved["items"]}
+    assert rows["yt-dlp"]["cookie_enabled"] is True
+    assert rows["gallery-dl"]["cookie_enabled"] is False
+    assert rows["yt-dlp"]["cookie_supported"] is True
+
+
+def test_non_cookie_parser_cannot_enable_cookie_switch(tmp_path):
+    store = ParserRouteStore(_db(tmp_path))
+    current = store.get("twitter")["items"]
+    saved = store.save("twitter", [
+        {"key": x["key"], "enabled": x["enabled"], "cookie_enabled": True}
+        for x in current
+    ])
+    rows = {x["key"]: x for x in saved["items"]}
+    assert rows["x-cli"]["cookie_supported"] is True
+    assert rows["x-cli"]["cookie_enabled"] is True

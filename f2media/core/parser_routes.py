@@ -11,10 +11,10 @@ PLATFORMS = (
 )
 
 BUILTINS: list[dict[str, Any]] = [
-    {"key": "douyin_parse", "label": "douyin_parse（需 Cookie）", "kind": "builtin", "recommended": {"douyin"}},
-    {"key": "x-cli", "label": "x-cli", "kind": "builtin", "recommended": {"twitter"}},
-    {"key": "gallery-dl", "label": "gallery-dl", "kind": "builtin", "recommended": {"instagram", "twitter", "facebook", "tiktok", "bilibili"}},
-    {"key": "yt-dlp", "label": "yt-dlp", "kind": "builtin", "recommended": {"douyin", "kuaishou", "tiktok", "twitter", "instagram", "facebook", "youtube", "bilibili", "xiaohongshu"}},
+    {"key": "douyin_parse", "label": "douyin_parse（需 Cookie）", "kind": "builtin", "cookie_supported": True, "recommended": {"douyin"}},
+    {"key": "x-cli", "label": "x-cli", "kind": "builtin", "cookie_supported": True, "recommended": {"twitter"}},
+    {"key": "gallery-dl", "label": "gallery-dl", "kind": "builtin", "cookie_supported": True, "recommended": {"instagram", "twitter", "facebook", "tiktok", "bilibili"}},
+    {"key": "yt-dlp", "label": "yt-dlp", "kind": "builtin", "cookie_supported": True, "recommended": {"douyin", "kuaishou", "tiktok", "twitter", "instagram", "facebook", "youtube", "bilibili", "xiaohongshu"}},
 ]
 
 DEFAULT_BUILTIN_ORDER = {
@@ -52,6 +52,7 @@ class ParserRouteStore:
                 "recommended": platform in row["recommended"],
                 "api_id": None,
                 "api_enabled": True,
+                "cookie_supported": bool(row.get("cookie_supported")),
             })
 
         apis = []
@@ -65,6 +66,7 @@ class ParserRouteStore:
                 "api_id": int(api["id"]),
                 "api_enabled": bool(api.get("enabled")),
                 "api_priority": int(api.get("priority") or 100),
+                "cookie_supported": False,
             })
         apis.sort(key=lambda x: (0 if x["recommended"] else 1, x["api_priority"], x["api_id"]))
 
@@ -98,9 +100,10 @@ class ParserRouteStore:
             if not base or key in seen:
                 continue
             enabled = bool(item.get("enabled", base["recommended"]))
+            cookie_enabled = bool(item.get("cookie_enabled", False)) and bool(base.get("cookie_supported"))
             if base["kind"] == "free_api" and not base["api_enabled"]:
                 enabled = False
-            out.append({**base, "enabled": enabled})
+            out.append({**base, "enabled": enabled, "cookie_enabled": cookie_enabled})
             seen.add(key)
 
         for base in current:
@@ -109,7 +112,7 @@ class ParserRouteStore:
             enabled = bool(base["recommended"])
             if base["kind"] == "free_api" and not base["api_enabled"]:
                 enabled = False
-            out.append({**base, "enabled": enabled})
+            out.append({**base, "enabled": enabled, "cookie_enabled": False})
         return {"platform": platform, "items": out}
 
     def all(self) -> list[dict[str, Any]]:
@@ -123,7 +126,11 @@ class ParserRouteStore:
             key = str(item.get("key") or "")
             if key not in valid or key in seen:
                 continue
-            cleaned.append({"key": key, "enabled": bool(item.get("enabled"))})
+            cleaned.append({
+                "key": key,
+                "enabled": bool(item.get("enabled")),
+                "cookie_enabled": bool(item.get("cookie_enabled")),
+            })
             seen.add(key)
         self.db.put_setting(self._setting_key(platform), json.dumps(cleaned, ensure_ascii=False))
         return self.get(platform)
@@ -137,3 +144,9 @@ class ParserRouteStore:
 
     def parser_options(self, platform: str) -> list[dict[str, Any]]:
         return self.get(platform)["items"]
+
+    def cookie_enabled(self, platform: str, parser_key: str) -> bool:
+        return any(
+            x["key"] == parser_key and x.get("cookie_supported") and x.get("cookie_enabled")
+            for x in self.parser_options(platform)
+        )

@@ -30,13 +30,19 @@ class CookieStore:
             pass
         return key
 
-    def save(self, platform: str, cookie: str, extra: str | None = None) -> None:
+    def save(
+        self,
+        platform: str,
+        cookie: str,
+        extra: str | None = None,
+        allowed_parsers: list[str] | None = None,
+    ) -> None:
         cookie = cookie.strip().replace("\r\n", "\n").replace("\r", "\n")
         if not cookie:
             raise ValueError("Cookie 不能为空")
         c = self._fernet.encrypt(cookie.encode())
         e = self._fernet.encrypt(extra.strip().encode()) if extra and extra.strip() else None
-        self.db.put_cookie(platform, c, e)
+        self.db.put_cookie(platform, c, e, allowed_parsers=allowed_parsers)
 
     def get(self, platform: str) -> tuple[str | None, str | None]:
         row = self.db.get_cookie(platform)
@@ -45,3 +51,26 @@ class CookieStore:
         cookie = self._fernet.decrypt(row["cookie_cipher"]).decode()
         extra = self._fernet.decrypt(row["extra_cipher"]).decode() if row["extra_cipher"] else None
         return cookie, extra
+
+    def allowed_parsers(self, platform: str) -> list[str]:
+        row = self.db.get_cookie(platform)
+        if not row:
+            return []
+        try:
+            import json
+            value = json.loads(row["allowed_parsers_json"] or "[]")
+        except (TypeError, ValueError, KeyError):
+            return []
+        return [str(x) for x in value if isinstance(x, str) and x.strip()]
+
+    def get_for_parser(
+        self, platform: str, parser_key: str, parser_enabled: bool = False
+    ) -> tuple[str | None, str | None]:
+        """Return Cookie only when both permission gates are open."""
+        if not parser_enabled or parser_key not in self.allowed_parsers(platform):
+            return None, None
+        return self.get(platform)
+
+    def set_permissions(self, platform: str, allowed_parsers: list[str]) -> None:
+        cleaned = list(dict.fromkeys(str(x).strip() for x in allowed_parsers if str(x).strip()))
+        self.db.set_cookie_permissions(platform, cleaned)

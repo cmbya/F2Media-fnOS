@@ -169,12 +169,15 @@ class DownloadService:
             log.write("ERROR", "解析结果不存在")
             return
 
-        cookie, _ = self.cookies.get(row["platform"])
+        parser_key = str(result.get("route_parser") or result.get("parser") or "")
+        cookie_allowed = self.parse_service.routes.cookie_enabled(row["platform"], parser_key)
+        cookie, _ = self.cookies.get_for_parser(row["platform"], parser_key, cookie_allowed)
         log.write("INFO", f"task_id={task_id} platform={row['platform']} url={row['url']}")
         log.write("INFO", f"parser={result.get('parser')} parse_id={row.get('parse_id')}")
         log.write(
             "INFO",
-            f"Cookie状态: {'已配置' if cookie else '未配置'}; format="
+            f"Cookie状态: {'已授权并读取' if cookie else '未读取'}; parser={parser_key}; "
+            f"引擎开关={'开' if cookie_allowed else '关'}; format="
             f"{'netscape' if cookie and cookie.lstrip().startswith('# Netscape') else ('header' if cookie else 'none')}",
         )
         self.db.update_task(task_id, status="downloading", adapter=result.get("parser"), started_at=now_iso(), progress=1)
