@@ -57,6 +57,8 @@ class ShortVideosAdapter:
             )
         if not response.get("ok"):
             detail = response.get("error") or f"进程失败（exit={rc}）"
+            if err.strip() and "未输出 JSON" in str(detail):
+                detail = f"{detail}：{redact_text(err.strip()[-1200:])}"
             raise RuntimeError(redact_text(str(detail)))
 
         raw = response.get("data")

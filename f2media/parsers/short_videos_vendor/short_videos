@@ -20,8 +20,21 @@ if [[ -d "$PHP_LIB_DIR" ]]; then
   export LD_LIBRARY_PATH="$PHP_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 
-exec "$PHP_BIN" -n \
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/f2media-short-videos.XXXXXX")"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+set +e
+"$PHP_BIN" -n \
   -d "extension_dir=$PHP_EXT_DIR" \
   -d extension=curl.so \
   -d display_errors=stderr \
-  "$ADAPTER" "$@"
+  "$ADAPTER" "$@" >"$TMP_DIR/stdout" 2>"$TMP_DIR/stderr"
+RC=$?
+set -e
+
+cat "$TMP_DIR/stdout"
+cat "$TMP_DIR/stderr" >&2
+if [[ ! -s "$TMP_DIR/stdout" ]]; then
+  printf '{"ok":false,"error":"short_videos PHP 进程未输出 JSON","exit":%s}\n' "$RC"
+fi
+exit "$RC"

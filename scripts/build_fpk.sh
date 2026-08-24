@@ -292,6 +292,12 @@ test -f "$INNER/ui/images/icon_256.png"
 test -f "$INNER/short-videos/adapter.php"
 test -f "$INNER/short-videos/BilibiliParser.php"
 "$INNER/bin/short_videos" --health | grep -q '"ok":true'
+set +e
+printf '%s\n' '{"platform":"invalid","url":"https://example.invalid/","cookie":""}' | "$INNER/bin/short_videos" > "$AUDIT/fpk-short-videos-stdin-check.json"
+rc=$?
+set -e
+test "$rc" = 2
+grep -q '不支持平台' "$AUDIT/fpk-short-videos-stdin-check.json"
 
 CURRENT_STAGE="final sha256"
 sha256sum "$OUT" | tee "$DIST/SHA256SUMS.txt"

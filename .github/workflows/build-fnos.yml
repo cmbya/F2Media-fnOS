@@ -161,12 +161,21 @@ jobs:
           cp f2media/parsers/short_videos_vendor/{adapter.php,DouyinParser.php,KuaishouSpider.php,XiaohongshuParser.php,BilibiliParser.php} build/short-videos/
           cp f2media/parsers/short_videos_vendor/short_videos build/bin/short_videos
           chmod +x build/bin/short_videos
+          for file in build/short-videos/*.php; do
+            build/php/bin/php -n -d extension_dir="$PWD/build/php/extensions" -d extension=curl.so -l "$file"
+          done
           F2MEDIA_SHORT_VIDEOS_BIN="$PWD/build/bin/short_videos" \
             F2MEDIA_SHORT_VIDEOS_ADAPTER="$PWD/build/short-videos/adapter.php" \
             F2MEDIA_SHORT_VIDEOS_PHP="$PWD/build/php/bin/php" \
             F2MEDIA_SHORT_VIDEOS_EXT_DIR="$PWD/build/php/extensions" \
             F2MEDIA_SHORT_VIDEOS_LIB_DIR="$PWD/build/php/lib" \
             build/bin/short_videos --health | tee build-logs/short-videos-health.json
+          set +e
+          printf '%s\n' '{"platform":"invalid","url":"https://example.invalid/","cookie":""}' | build/bin/short_videos > build-logs/short-videos-stdin-check.json
+          rc=$?
+          set -e
+          test "$rc" = 2
+          grep -q '不支持平台' build-logs/short-videos-stdin-check.json
           cmp f2media/parsers/short_videos_vendor/DouyinParser.php build/vendor/short_videos/api/douyin/DouyinParser.php
           cmp f2media/parsers/short_videos_vendor/KuaishouSpider.php build/vendor/short_videos/api/kuaishou/KuaishouSpider.php
           cmp f2media/parsers/short_videos_vendor/XiaohongshuParser.php build/vendor/short_videos/api/xiaohongshu/XiaohongshuParser.php
