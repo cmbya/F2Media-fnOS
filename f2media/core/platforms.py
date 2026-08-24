@@ -11,7 +11,7 @@ class ParsedInput:
     platform: str
 
 
-URL_RE = re.compile(r"https?://[^\s<>"'，。！？、；;）)\]】》」』]+", re.I)
+URL_RE = re.compile(r"https?://[^\s<>\"'，。！？、；;）)\]】》」』]+", re.I)
 
 DOMAIN_PLATFORM = {
     "douyin.com": "douyin",
