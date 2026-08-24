@@ -6,7 +6,7 @@ on:
       version:
         description: "F2Media 版本（X.Y.Z）"
         required: true
-        default: "0.1.0"
+        default: "0.5.3"
         type: string
 
 permissions:
