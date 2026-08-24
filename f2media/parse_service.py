@@ -196,7 +196,7 @@ class ParseService:
                 api_id = int(parser_key.split(":", 1)[1])
             except ValueError as exc:
                 raise RuntimeError("无效免费 API 路由") from exc
-            return await self.free_apis.call_by_id(api_id, item.platform, item.url)
+            return await self.free_apis.call_by_id(api_id, item.platform, item.url, cookie)
         raise RuntimeError(f"未知解析器: {parser_key}")
 
     @staticmethod
