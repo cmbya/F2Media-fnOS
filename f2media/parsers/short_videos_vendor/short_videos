@@ -20,6 +20,14 @@ if [[ -d "$PHP_LIB_DIR" ]]; then
   export LD_LIBRARY_PATH="$PHP_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 
+if [[ "$#" -eq 1 && "$1" == "--version" ]]; then
+  set +e
+  "$PHP_BIN" -n -r 'echo "short_videos PHP runtime ", PHP_VERSION, PHP_EOL;'
+  RC=$?
+  set -e
+  exit "$RC"
+fi
+
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/f2media-short-videos.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
