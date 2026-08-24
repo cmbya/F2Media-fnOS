@@ -102,8 +102,8 @@ class ParseService:
                 "error": "该平台没有启用任何解析器，请到 设置 → 平台解析路由 启用",
             }
 
-        # URL normalization is part of the selected parser pipeline. It may use
-        # Cookie only if at least one selected engine has both permission gates open.
+        # URL normalization may use Cookie only when a selected parser's
+        # platform-route Cookie switch is enabled.
         normalizer_parser = next(
             (key for key in pipeline if self.routes.cookie_enabled(item.platform, key)), None
         )
