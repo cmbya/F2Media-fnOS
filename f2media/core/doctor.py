@@ -47,7 +47,7 @@ def _disk(path: Path) -> dict:
 
 def diagnostics(download_dir: Path, data_dir: Path) -> dict:
     tools = {}
-    for name in ("yt-dlp", "gallery-dl", "x-cli"):
+    for name in ("yt-dlp", "gallery-dl", "x-cli", "short_videos"):
         prefix = engine_command(name)
         tools[name] = {
             "path": " ".join(prefix) if prefix else None,
@@ -63,6 +63,7 @@ def diagnostics(download_dir: Path, data_dir: Path) -> dict:
         "douyin_parse": {"ok": douyin is not None, "detail": douyin.origin if douyin else "MISSING"},
         "free_api": {"ok": True, "detail": "configurable"},
         "x_cli": {"ok": engine_command("x-cli") is not None, "detail": " ".join(engine_command("x-cli") or [])},
+        "short_videos": {"ok": engine_command("short_videos") is not None, "detail": " ".join(engine_command("short_videos") or [])},
     }
     return {
         "python": sys.version.replace("\n", " "),
@@ -89,6 +90,7 @@ def parser_diagnostics() -> list[dict]:
         {"parser": "douyin_parse", "ok": douyin is not None, "detail": douyin.origin if douyin else "MISSING"},
         {"parser": "free-api", "ok": True, "detail": "WebUI configurable"},
         {"parser": "x-cli", "ok": engine_command("x-cli") is not None, "detail": " ".join(engine_command("x-cli") or [])},
+        {"parser": "short_videos", "ok": engine_command("short_videos") is not None, "detail": " ".join(engine_command("short_videos") or [])},
         {"parser": "gallery-dl", "ok": engine_command("gallery-dl") is not None, "detail": " ".join(engine_command("gallery-dl") or [])},
         {"parser": "yt-dlp", "ok": engine_command("yt-dlp") is not None, "detail": " ".join(engine_command("yt-dlp") or [])},
     ]

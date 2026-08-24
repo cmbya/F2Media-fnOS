@@ -51,11 +51,14 @@ mkdir -p "$PROJECT/app/bin" "$PROJECT/app/runtime" "$PROJECT/app/engines" "$PROJ
 
 cp -a "$ROOT/build/runtime/f2media-runtime" "$PROJECT/app/runtime/"
 cp -a "$ROOT/build/engines/gallery-dl" "$PROJECT/app/engines/"
+cp -a "$ROOT/build/php" "$PROJECT/app/php"
+cp -a "$ROOT/build/short-videos" "$PROJECT/app/short-videos"
 install -m755 "$ROOT/build/bin/yt-dlp" "$PROJECT/app/bin/yt-dlp"
 install -m755 "$ROOT/build/bin/deno" "$PROJECT/app/bin/deno"
 install -m755 "$ROOT/build/bin/ffmpeg" "$PROJECT/app/bin/ffmpeg"
 install -m755 "$ROOT/build/bin/ffprobe" "$PROJECT/app/bin/ffprobe"
 install -m755 "$ROOT/build/bin/x-cli" "$PROJECT/app/bin/x-cli"
+install -m755 "$ROOT/build/bin/short_videos" "$PROJECT/app/bin/short_videos"
 install -m755 "$ROOT/fnos/start-f2media" "$PROJECT/app/bin/start-f2media"
 cp "$ROOT/LICENSE" "$PROJECT/app/LICENSE-F2MEDIA.txt"
 cp "$ROOT/THIRD_PARTY.md" "$PROJECT/app/THIRD_PARTY.md"
@@ -63,6 +66,10 @@ mkdir -p "$PROJECT/app/third-party/x-cli"
 for f in LICENSE NOTICE; do
   [ -f "$ROOT/build/vendor/x-cli/$f" ] && cp "$ROOT/build/vendor/x-cli/$f" "$PROJECT/app/third-party/x-cli/$f"
 done
+mkdir -p "$PROJECT/app/third-party/short-videos"
+cp "$ROOT/f2media/parsers/short_videos_vendor/LICENSE" "$PROJECT/app/third-party/short-videos/LICENSE"
+cp "$ROOT/f2media/parsers/short_videos_vendor/README.upstream.md" "$PROJECT/app/third-party/short-videos/README.upstream.md"
+cp "$ROOT/f2media/parsers/short_videos_vendor/SOURCE_COMMIT.txt" "$PROJECT/app/third-party/short-videos/SOURCE_COMMIT.txt"
 cp "$ROOT/fnos/app/ui/config" "$PROJECT/app/ui/config"
 cp "$ROOT/fnos/ICON.PNG" "$PROJECT/app/ui/images/icon_64.png"
 cp "$ROOT/fnos/ICON_256.PNG" "$PROJECT/app/ui/images/icon_256.png"
@@ -205,6 +212,7 @@ CURRENT_STAGE="record build provenance"
   "$PROJECT/app/bin/deno" --version 2>&1 | sed -n '1p'
   "$PROJECT/app/engines/gallery-dl/gallery-dl" --version || true
   "$PROJECT/app/bin/x-cli" version 2>/dev/null || "$PROJECT/app/bin/x-cli" --version 2>/dev/null || true
+  "$PROJECT/app/bin/short_videos" --health 2>&1 | sed -n '1p'
 } > "$PROJECT/app/BUILD-MANIFEST.txt" 2>&1
 
 CURRENT_STAGE="official fnpack build"
@@ -265,7 +273,8 @@ mkdir -p "$INNER"
 tar -xf "$VERIFY/app.tgz" -C "$INNER"
 for f in \
   "$INNER/bin/start-f2media" "$INNER/bin/ffmpeg" "$INNER/bin/ffprobe" "$INNER/bin/yt-dlp" "$INNER/bin/deno" "$INNER/bin/x-cli" \
-  "$INNER/runtime/f2media-runtime/f2media-runtime" "$INNER/engines/gallery-dl/gallery-dl"; do
+  "$INNER/runtime/f2media-runtime/f2media-runtime" "$INNER/engines/gallery-dl/gallery-dl" \
+  "$INNER/bin/short_videos" "$INNER/php/bin/php"; do
   test -x "$f" || { echo "missing executable in app.tgz: $f" >&2; exit 1; }
 done
 python3 - "$INNER/ui/config" <<'PY'
@@ -280,6 +289,9 @@ PY
 
 test -f "$INNER/ui/images/icon_64.png"
 test -f "$INNER/ui/images/icon_256.png"
+test -f "$INNER/short-videos/adapter.php"
+test -f "$INNER/short-videos/BilibiliParser.php"
+"$INNER/bin/short_videos" --health | grep -q '"ok":true'
 
 CURRENT_STAGE="final sha256"
 sha256sum "$OUT" | tee "$DIST/SHA256SUMS.txt"

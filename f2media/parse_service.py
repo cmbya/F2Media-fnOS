@@ -26,6 +26,7 @@ from .parsers.common import clean_url, looks_downloadable, media_kind, safe_titl
 from .parsers.douyin_parse import DouyinParseAdapter
 from .parsers.free_api import FreeApiStore
 from .parsers.social_cli import parse_cli_json, normalize_x_cli
+from .parsers.short_videos import ShortVideosAdapter
 
 GALLERY_PLATFORMS = {"instagram", "twitter", "facebook", "tiktok", "bilibili"}
 YTDLP_PLATFORMS = {"douyin", "tiktok", "twitter", "instagram", "facebook", "youtube", "bilibili", "xiaohongshu", "kuaishou"}
@@ -56,6 +57,7 @@ class ParseService:
         self.routes = routes
         self.logger = logger
         self.douyin = DouyinParseAdapter()
+        self.short_videos = ShortVideosAdapter()
 
     async def parse_text(
         self, text: str, *, persist: bool = True, parser: str | None = None
@@ -180,6 +182,8 @@ class ParseService:
             return await self._gallery_probe(item, cookie)
         if parser_key == "yt-dlp":
             return await self._ytdlp_probe(item, cookie)
+        if parser_key == "short_videos":
+            return await self.short_videos.parse(item, cookie, self)
         if parser_key.startswith("free-api:"):
             try:
                 api_id = int(parser_key.split(":", 1)[1])
@@ -239,7 +243,14 @@ class ParseService:
             raise RuntimeError("x-cli 没有返回可下载媒体 URL")
         return result
 
-    async def _capture(self, cmd: list[str], *, state_dir: Path, timeout: int = 60) -> tuple[int, str, str]:
+    async def _capture(
+        self,
+        cmd: list[str],
+        *,
+        state_dir: Path,
+        timeout: int = 60,
+        input_text: str | None = None,
+    ) -> tuple[int, str, str]:
         env = os.environ.copy()
         env.update({
             "HOME": str(state_dir),
@@ -250,10 +261,12 @@ class ParseService:
             p.mkdir(parents=True, exist_ok=True)
         proc = await asyncio.create_subprocess_exec(
             *cmd, cwd=str(state_dir), env=env,
+            stdin=asyncio.subprocess.PIPE if input_text is not None else asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         try:
-            out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            input_bytes = input_text.encode("utf-8") if input_text is not None else None
+            out, err = await asyncio.wait_for(proc.communicate(input=input_bytes), timeout=timeout)
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()

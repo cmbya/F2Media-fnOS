@@ -33,7 +33,13 @@ def test_removed_nonworking_parsers_are_not_packaged():
         assert token not in text.lower()
 
 
-def test_short_videos_local_parser_is_removed():
+def test_short_videos_engine_is_bundled_and_real_entrypoint_exists():
     from pathlib import Path
-    assert not Path("f2media/parsers/short_videos.py").exists()
-    assert "short_videos-local" not in Path("f2media/core/parser_routes.py").read_text(encoding="utf-8")
+    assert Path("f2media/parsers/short_videos.py").exists()
+    assert Path("f2media/parsers/short_videos_vendor/adapter.php").exists()
+    workflow = Path(".github/workflows/build-fnos.yml").read_text(encoding="utf-8")
+    build = Path("scripts/build_fpk.sh").read_text(encoding="utf-8")
+    assert "jiuhunwl/short_videos.git" in workflow
+    assert "SHORT_VIDEOS_COMMIT" in workflow
+    assert "package_php_runtime.py" in workflow
+    assert 'install -m755 "$ROOT/build/bin/short_videos"' in build

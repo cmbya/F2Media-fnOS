@@ -48,6 +48,20 @@ def test_video_backup_is_used_only_when_primary_is_missing():
     assert result['media'][0]['url'].endswith('/backup.mp4')
 
 
+def test_short_videos_bilibili_parts_are_all_normalized_with_part_metadata():
+    result = normalize_external_result({
+        'data': {
+            'title': '合集',
+            'videos': [
+                {'title': '第一集', 'index': 1, 'url': 'https://cdn.example.com/p1.mp4'},
+                {'title': '第二集', 'index': 2, 'url': 'https://cdn.example.com/p2.mp4'},
+            ],
+        }
+    }, 'bilibili', 'https://www.bilibili.com/video/BV1xx', 'short_videos')
+    assert result['counts']['videos'] == 2
+    assert [(x['part_index'], x['part_title']) for x in result['media']] == [(1, '第一集'), (2, '第二集')]
+
+
 def test_douyin_desktop_modal_url_normalizes_to_work_url():
     item = ParsedInput(
         url='https://www.douyin.com/user/abc?from_tab_name=main&modal_id=7676064894881797617',
@@ -68,4 +82,5 @@ def test_pipeline_order_is_user_configurable():
     from f2media.core.parser_routes import DEFAULT_BUILTIN_ORDER
     assert DEFAULT_BUILTIN_ORDER["twitter"][:3] == ["x-cli", "gallery-dl", "yt-dlp"]
     assert DEFAULT_BUILTIN_ORDER["facebook"] == ["gallery-dl", "yt-dlp"]
-    assert DEFAULT_BUILTIN_ORDER["douyin"] == ["douyin_parse", "gallery-dl", "yt-dlp"]
+    assert DEFAULT_BUILTIN_ORDER["douyin"] == ["douyin_parse", "short_videos", "gallery-dl", "yt-dlp"]
+    assert DEFAULT_BUILTIN_ORDER["bilibili"] == ["short_videos", "gallery-dl", "yt-dlp"]

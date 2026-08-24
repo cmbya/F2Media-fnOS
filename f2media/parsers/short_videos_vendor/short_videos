@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PHP_BIN="${F2MEDIA_SHORT_VIDEOS_PHP:-$APP_ROOT/php/bin/php}"
+ADAPTER="${F2MEDIA_SHORT_VIDEOS_ADAPTER:-$APP_ROOT/short-videos/adapter.php}"
+PHP_EXT_DIR="${F2MEDIA_SHORT_VIDEOS_EXT_DIR:-$APP_ROOT/php/extensions}"
+PHP_LIB_DIR="${F2MEDIA_SHORT_VIDEOS_LIB_DIR:-$APP_ROOT/php/lib}"
+
+if [[ ! -x "$PHP_BIN" ]]; then
+  echo "short_videos PHP runtime missing: $PHP_BIN" >&2
+  exit 127
+fi
+if [[ ! -f "$ADAPTER" ]]; then
+  echo "short_videos adapter missing: $ADAPTER" >&2
+  exit 127
+fi
+
+if [[ -d "$PHP_LIB_DIR" ]]; then
+  export LD_LIBRARY_PATH="$PHP_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+
+exec "$PHP_BIN" -n \
+  -d "extension_dir=$PHP_EXT_DIR" \
+  -d extension=curl.so \
+  -d display_errors=stderr \
+  "$ADAPTER" "$@"

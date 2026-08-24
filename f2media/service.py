@@ -313,7 +313,15 @@ class DownloadService:
                 transfer = await self._download_image(task_id, raw["url"], out_dir / f"{base}.jpg", result, cookie, log)
             else:
                 video_index += 1
-                base = title if video_index == 1 else f"{title}{video_index}"
+                part_title = safe_title(str(raw.get("part_title") or ""), "")
+                part_index = raw.get("part_index")
+                if result.get("parser") == "short_videos" and (part_title or part_index):
+                    label = part_title or f"P{part_index}"
+                    if part_index is not None and part_title:
+                        label = f"P{part_index} {part_title}"
+                    base = f"{title} {label}"
+                else:
+                    base = title if video_index == 1 else f"{title}{video_index}"
                 transfer = await self._download_video(task_id, raw["url"], out_dir / f"{base}.mp4", result, cookie, log)
             if transfer.ok and transfer.path:
                 files.append(transfer.path)

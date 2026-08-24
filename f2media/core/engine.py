@@ -8,12 +8,14 @@ ENV_NAMES = {
     "yt-dlp": "F2MEDIA_YTDLP_BIN",
     "gallery-dl": "F2MEDIA_GALLERYDL_BIN",
     "x-cli": "F2MEDIA_XCLI_BIN",
+    "short_videos": "F2MEDIA_SHORT_VIDEOS_BIN",
 }
 
 BINARY_NAMES = {
     "yt-dlp": "yt-dlp",
     "gallery-dl": "gallery-dl",
     "x-cli": "x-cli",
+    "short_videos": "short_videos",
 }
 
 

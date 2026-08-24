@@ -19,10 +19,10 @@ def _seed(db: Database, name: str, platforms: list[str], priority: int = 50) -> 
 def test_builtin_parsers_match_supported_set(tmp_path):
     store = ParserRouteStore(_db(tmp_path))
     expected = {
-        "douyin": {"douyin_parse", "gallery-dl", "yt-dlp"},
-        "kuaishou": {"gallery-dl", "yt-dlp"},
-        "bilibili": {"gallery-dl", "yt-dlp"},
-        "xiaohongshu": {"gallery-dl", "yt-dlp"},
+        "douyin": {"douyin_parse", "short_videos", "gallery-dl", "yt-dlp"},
+        "kuaishou": {"short_videos", "gallery-dl", "yt-dlp"},
+        "bilibili": {"short_videos", "gallery-dl", "yt-dlp"},
+        "xiaohongshu": {"short_videos", "gallery-dl", "yt-dlp"},
         "instagram": {"gallery-dl", "yt-dlp"},
         "twitter": {"x-cli", "gallery-dl", "yt-dlp"},
         "youtube": {"yt-dlp", "gallery-dl"},
@@ -53,9 +53,15 @@ def test_supported_free_api_precedes_douyin_local_fallbacks(tmp_path):
     api_id = _seed(db, "dy-api", ["douyin"], 10)
     store = ParserRouteStore(db)
     enabled = store.enabled_keys("douyin")
-    assert enabled[0] == f"free-api:{api_id}"
+    assert enabled[:3] == ["douyin_parse", "short_videos", f"free-api:{api_id}"]
     assert "douyin_parse" in enabled
-    assert "short_videos-local" not in {x["key"] for x in store.get("douyin")["items"]}
+
+
+def test_short_videos_is_before_free_api_on_supported_platforms(tmp_path):
+    db = _db(tmp_path)
+    api_id = _seed(db, "bili-api", ["bilibili"], 10)
+    enabled = ParserRouteStore(db).enabled_keys("bilibili")
+    assert enabled[:2] == ["short_videos", f"free-api:{api_id}"]
 
 
 def test_user_order_and_enable_state_are_persisted(tmp_path):
@@ -105,6 +111,7 @@ def test_cookie_engine_switch_is_deny_by_default_and_persisted(tmp_path):
     assert rows["yt-dlp"]["cookie_enabled"] is True
     assert rows["gallery-dl"]["cookie_enabled"] is False
     assert rows["yt-dlp"]["cookie_supported"] is True
+    assert rows["short_videos"]["cookie_enabled"] is False
 
 
 def test_non_cookie_parser_cannot_enable_cookie_switch(tmp_path):

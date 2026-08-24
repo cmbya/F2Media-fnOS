@@ -151,7 +151,18 @@ def normalize_external_result(
         for value in raw_videos:
             url = clean_url(value)
             if url:
-                media.append({"type": "video", "url": url})
+                item = {"type": "video", "url": url}
+                if isinstance(value, dict):
+                    # Preserve per-page metadata from short_videos' Bilibili
+                    # parser so the downloader can name every P part clearly.
+                    for source_key, target_key in (
+                        ("title", "part_title"), ("part", "part_title"),
+                        ("index", "part_index"), ("duration", "duration"),
+                        ("durationFormat", "duration_format"),
+                    ):
+                        if value.get(source_key) is not None and target_key not in item:
+                            item[target_key] = value[source_key]
+                media.append(item)
 
     if not video and not raw_videos:
         backups = data.get("video_backup") or []

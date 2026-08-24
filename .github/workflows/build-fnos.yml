@@ -21,6 +21,7 @@ jobs:
       FNPACK_VERSION: "1.2.3"
       FNPACK_LINUX_AMD64_SHA256: "54b97fa7b70968c4d05c79840f5daeff508957d0bb2062fdb0376d00d9615c93"
       XCLI_VERSION: "v0.5.0"
+      SHORT_VIDEOS_COMMIT: "87a7901018f9708663568d762e59a442a40c77c5"
 
     steps:
       - name: Checkout
@@ -68,6 +69,19 @@ jobs:
           rm -rf build/vendor/x-cli
           git clone --depth 1 --branch "$XCLI_VERSION" --recurse-submodules https://github.com/tamnd/x-cli.git build/vendor/x-cli
           git -C build/vendor/x-cli rev-parse HEAD | tee build-logs/x-cli-commit.txt
+
+      - name: Verify short_videos source pin
+        run: |
+          set -euo pipefail
+          rm -rf build/vendor/short_videos
+          git clone --filter=blob:none https://github.com/jiuhunwl/short_videos.git build/vendor/short_videos
+          git -C build/vendor/short_videos fetch --depth 1 origin "$SHORT_VIDEOS_COMMIT"
+          git -C build/vendor/short_videos checkout --detach "$SHORT_VIDEOS_COMMIT"
+          git -C build/vendor/short_videos rev-parse HEAD | tee build-logs/short-videos-commit.txt
+          test "$(git -C build/vendor/short_videos rev-parse HEAD)" = "$SHORT_VIDEOS_COMMIT"
+          for f in DouyinParser.php KuaishouSpider.php XiaohongshuParser.php BilibiliParser.php; do
+            test -f "build/vendor/short_videos/api/$(case "$f" in DouyinParser.php) echo douyin;; KuaishouSpider.php) echo kuaishou;; XiaohongshuParser.php) echo xiaohongshu;; BilibiliParser.php) echo bilibili;; esac)/$f"
+          done
 
       - name: Install build dependencies
         run: |
@@ -133,6 +147,31 @@ jobs:
             scripts/engine_gallerydl_entry.py
           mv dist/gallery-dl build/engines/
 
+      - name: Build short_videos PHP engine
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y php8.1-cli php8.1-curl
+          PHP_BIN="$(command -v php8.1 || command -v php)"
+          php -m | tee build-logs/php-modules.txt
+          php -r 'if (!function_exists("curl_init")) { fwrite(STDERR, "PHP cURL extension missing\n"); exit(1); }'
+          python scripts/package_php_runtime.py "$PHP_BIN" build/php
+          rm -rf build/short-videos
+          mkdir -p build/short-videos
+          cp f2media/parsers/short_videos_vendor/{adapter.php,DouyinParser.php,KuaishouSpider.php,XiaohongshuParser.php,BilibiliParser.php} build/short-videos/
+          cp f2media/parsers/short_videos_vendor/short_videos build/bin/short_videos
+          chmod +x build/bin/short_videos
+          F2MEDIA_SHORT_VIDEOS_BIN="$PWD/build/bin/short_videos" \
+            F2MEDIA_SHORT_VIDEOS_ADAPTER="$PWD/build/short-videos/adapter.php" \
+            F2MEDIA_SHORT_VIDEOS_PHP="$PWD/build/php/bin/php" \
+            F2MEDIA_SHORT_VIDEOS_EXT_DIR="$PWD/build/php/extensions" \
+            F2MEDIA_SHORT_VIDEOS_LIB_DIR="$PWD/build/php/lib" \
+            build/bin/short_videos --health | tee build-logs/short-videos-health.json
+          cmp f2media/parsers/short_videos_vendor/DouyinParser.php build/vendor/short_videos/api/douyin/DouyinParser.php
+          cmp f2media/parsers/short_videos_vendor/KuaishouSpider.php build/vendor/short_videos/api/kuaishou/KuaishouSpider.php
+          cmp f2media/parsers/short_videos_vendor/XiaohongshuParser.php build/vendor/short_videos/api/xiaohongshu/XiaohongshuParser.php
+          cmp f2media/parsers/short_videos_vendor/BilibiliParser.php build/vendor/short_videos/api/bilibili/BilibiliParser.php
+
       - name: Build x-cli
         run: |
           set -euo pipefail
@@ -173,6 +212,7 @@ jobs:
             build/runtime/f2media-runtime build/engines/gallery-dl \
             build/bin/yt-dlp build/bin/deno build/bin/ffmpeg build/bin/ffprobe \
             build/bin/x-cli \
+            build/bin/short_videos build/php/bin/php build/php/extensions/curl.so \
             2>&1 | tee build-logs/glibc.log
 
       - name: Runtime API/MCP self-check
@@ -185,6 +225,11 @@ jobs:
           F2MEDIA_YTDLP_BIN="$PWD/build/bin/yt-dlp" \
           F2MEDIA_DENO_BIN="$PWD/build/bin/deno" \
           F2MEDIA_XCLI_BIN="$PWD/build/bin/x-cli" \
+          F2MEDIA_SHORT_VIDEOS_BIN="$PWD/build/bin/short_videos" \
+          F2MEDIA_SHORT_VIDEOS_ADAPTER="$PWD/build/short-videos/adapter.php" \
+          F2MEDIA_SHORT_VIDEOS_PHP="$PWD/build/php/bin/php" \
+          F2MEDIA_SHORT_VIDEOS_EXT_DIR="$PWD/build/php/extensions" \
+          F2MEDIA_SHORT_VIDEOS_LIB_DIR="$PWD/build/php/lib" \
           F2MEDIA_FFMPEG_DIR="$PWD/build/bin" \
           F2MEDIA_API_KEY="ci-test-api-key" F2MEDIA_PORT=18083 \
             build/runtime/f2media-runtime/f2media-runtime >"$TMPROOT/runtime.log" 2>&1 &

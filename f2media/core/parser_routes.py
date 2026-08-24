@@ -13,15 +13,16 @@ PLATFORMS = (
 BUILTINS: list[dict[str, Any]] = [
     {"key": "douyin_parse", "label": "douyin_parse（需 Cookie）", "kind": "builtin", "cookie_supported": True, "recommended": {"douyin"}},
     {"key": "x-cli", "label": "x-cli", "kind": "builtin", "cookie_supported": True, "recommended": {"twitter"}},
+    {"key": "short_videos", "label": "short_videos（本地 PHP）", "kind": "builtin", "cookie_supported": True, "recommended": {"douyin", "kuaishou", "xiaohongshu", "bilibili"}},
     {"key": "gallery-dl", "label": "gallery-dl", "kind": "builtin", "cookie_supported": True, "recommended": {"instagram", "twitter", "facebook", "tiktok", "bilibili"}},
     {"key": "yt-dlp", "label": "yt-dlp", "kind": "builtin", "cookie_supported": True, "recommended": {"douyin", "kuaishou", "tiktok", "twitter", "instagram", "facebook", "youtube", "bilibili", "xiaohongshu"}},
 ]
 
 DEFAULT_BUILTIN_ORDER = {
-    "douyin": ["douyin_parse", "gallery-dl", "yt-dlp"],
-    "kuaishou": ["gallery-dl", "yt-dlp"],
-    "bilibili": ["gallery-dl", "yt-dlp"],
-    "xiaohongshu": ["gallery-dl", "yt-dlp"],
+    "douyin": ["douyin_parse", "short_videos", "gallery-dl", "yt-dlp"],
+    "kuaishou": ["short_videos", "gallery-dl", "yt-dlp"],
+    "bilibili": ["short_videos", "gallery-dl", "yt-dlp"],
+    "xiaohongshu": ["short_videos", "gallery-dl", "yt-dlp"],
     "instagram": ["gallery-dl", "yt-dlp"],
     "twitter": ["x-cli", "gallery-dl", "yt-dlp"],
     "youtube": ["yt-dlp", "gallery-dl"],
@@ -70,8 +71,13 @@ class ParserRouteStore:
             })
         apis.sort(key=lambda x: (0 if x["recommended"] else 1, x["api_priority"], x["api_id"]))
 
-        # Put configurable APIs before local fallbacks. Keep x-cli first for X/Twitter.
+        # Free APIs are deliberately a later fallback for the four platforms
+        # covered by the local short_videos engine. Keep x-cli first for X/Twitter.
         if platform == "twitter":
+            insert_at = 1
+        elif platform == "douyin":
+            insert_at = 2
+        elif platform in {"kuaishou", "bilibili", "xiaohongshu"}:
             insert_at = 1
         elif platform in {"instagram", "youtube", "facebook", "tiktok"}:
             insert_at = 0
