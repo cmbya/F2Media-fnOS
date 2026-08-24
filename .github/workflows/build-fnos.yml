@@ -156,6 +156,11 @@ jobs:
           php -m | tee build-logs/php-modules.txt
           php -r 'if (!function_exists("curl_init")) { fwrite(STDERR, "PHP cURL extension missing\n"); exit(1); }'
           python scripts/package_php_runtime.py "$PHP_BIN" build/php
+          build/php/bin/php -n -v | tee build-logs/php-runtime-version.txt
+          build/php/bin/php -n \
+            -d extension_dir="$PWD/build/php/extensions" \
+            -d extension=curl.so \
+            -r 'if (!function_exists("curl_init")) { fwrite(STDERR, "packaged PHP cURL extension missing\n"); exit(1); } echo PHP_VERSION, " packaged cURL OK\n";'
           rm -rf build/short-videos
           mkdir -p build/short-videos
           cp f2media/parsers/short_videos_vendor/{adapter.php,DouyinParser.php,KuaishouSpider.php,XiaohongshuParser.php,BilibiliParser.php} build/short-videos/

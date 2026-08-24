@@ -10,6 +10,26 @@ import sys
 from pathlib import Path
 
 
+# These are part of the host's C runtime. Shipping them inside the FPK and
+# putting them first in LD_LIBRARY_PATH makes the PHP process load the build
+# machine's glibc/loader instead of fnOS's glibc. That can fail before PHP
+# prints anything (for example, with "stack smashing detected").
+HOST_RUNTIME_LIBRARIES = {
+    "ld-linux-x86-64.so.2",
+    "libc.so.6",
+    "libcrypt.so.1",
+    "libdl.so.2",
+    "libgcc_s.so.1",
+    "libm.so.6",
+    "libnsl.so.1",
+    "libpthread.so.0",
+    "libresolv.so.2",
+    "librt.so.1",
+    "libstdc++.so.6",
+    "libutil.so.1",
+}
+
+
 def ldd_paths(path: Path) -> set[Path]:
     text = subprocess.check_output(["ldd", str(path)], text=True, stderr=subprocess.STDOUT)
     found: set[Path] = set()
@@ -50,13 +70,18 @@ def main() -> int:
     while queue:
         current = queue.pop()
         for dependency in ldd_paths(current):
+            if dependency.name in HOST_RUNTIME_LIBRARIES:
+                continue
             if dependency in libraries:
                 continue
             libraries.add(dependency)
             queue.append(dependency)
     for dependency in sorted(libraries):
         shutil.copy2(dependency, output / "lib" / dependency.name)
-    print(f"packaged php={php} curl={curl} libraries={len(libraries)}")
+    print(
+        f"packaged php={php} curl={curl} libraries={len(libraries)} "
+        f"host_runtime_excluded={len(HOST_RUNTIME_LIBRARIES)}"
+    )
     return 0
 
 
