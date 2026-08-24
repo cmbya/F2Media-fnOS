@@ -1,7 +1,0 @@
-#!/bin/bash
-set -u
-case "upgrade_init" in
-  install_init|install_callback|upgrade_callback|config_init|config_callback) exit 0 ;;
-  upgrade_init|uninstall_init) "${TRIM_APPDEST}/cmd/main" stop >/dev/null 2>&1 || true; exit 0 ;;
-  uninstall_callback) exit 0 ;;
-esac
