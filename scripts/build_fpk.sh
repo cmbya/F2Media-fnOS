@@ -5,7 +5,7 @@ CURRENT_STAGE="bootstrap"
 trap 'rc=$?; echo "[FPK][ERROR] stage=${CURRENT_STAGE} line=${LINENO} rc=${rc} command=${BASH_COMMAND}" >&2; exit "$rc"' ERR
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${1:-0.5.2}"
+VERSION="${1:-0.5.3}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be X.Y.Z" >&2; exit 2; }
 
 FNPACK_BIN="${FNPACK_BIN:-${2:-}}"

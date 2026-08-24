@@ -17,11 +17,28 @@ import httpx
 from .engine import BINARY_NAMES, engine_command, packaged_engine_path
 
 SOURCES = {
-    "yt-dlp": {"repo": "yt-dlp/yt-dlp-nightly-builds", "kind": "raw", "asset_name": "yt-dlp_linux"},
-    "gallery-dl": {"repo": "gdl-org/builds", "kind": "raw", "asset_name": "gallery-dl.bin"},
+    "yt-dlp": {
+        "repo": "yt-dlp/yt-dlp-nightly-builds",
+        "kind": "raw",
+        "asset_name": "yt-dlp_linux",
+        "latest_url": "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest",
+    },
+    # Stable gallery-dl moved active development/releases to Codeberg.
+    # Use PyPI only to discover the stable version, then download the official
+    # upstream Linux standalone binary from Codeberg.
+    "gallery-dl": {
+        "kind": "raw",
+        "asset_name": "gallery-dl.bin",
+        "pypi_json": "https://pypi.org/pypi/gallery-dl/json",
+        "download_template": "https://codeberg.org/mikf/gallery-dl/releases/download/v{version}/gallery-dl.bin",
+    },
     "x-cli": {
-        "repo": "tamnd/x-cli", "kind": "archive", "archive_binary": "x",
-        "asset_name": "x_Linux_x86_64.tar.gz",
+        "repo": "tamnd/x-cli",
+        "kind": "archive",
+        "archive_binary": "x",
+        "latest_url": "https://github.com/tamnd/x-cli/releases/latest",
+        # GoReleaser config: x_<version>_<os>_<arch>.tar.gz
+        "asset_template": "x_{version}_linux_amd64.tar.gz",
     },
 }
 
@@ -76,6 +93,29 @@ def _pick_asset(name: str, assets: list[dict[str, Any]]) -> dict[str, Any] | Non
     return None
 
 
+def _asset_name(name: str, latest_tag: str) -> str:
+    source = SOURCES[name]
+    if source.get("asset_name"):
+        return str(source["asset_name"])
+    version = latest_tag.lstrip("v")
+    template = str(source.get("asset_template") or "")
+    if not template:
+        raise RuntimeError(f"{name} 没有配置更新资产名称")
+    return template.format(version=version, tag=latest_tag)
+
+
+def _download_url(name: str, latest_tag: str, asset_name: str) -> str:
+    source = SOURCES[name]
+    if source.get("download_template"):
+        return str(source["download_template"]).format(
+            version=latest_tag.lstrip("v"), tag=latest_tag, asset=asset_name
+        )
+    repo = str(source.get("repo") or "")
+    if not repo:
+        raise RuntimeError(f"{name} 没有配置上游仓库")
+    return f"https://github.com/{repo}/releases/download/{latest_tag}/{asset_name}"
+
+
 def _extract_archive_binary(name: str, archive: Path, output: Path) -> None:
     wanted = str(SOURCES[name].get("archive_binary") or "")
     candidates: list[tuple[str, bytes]] = []
@@ -83,9 +123,7 @@ def _extract_archive_binary(name: str, archive: Path, output: Path) -> None:
     if lower.endswith((".tar.gz", ".tgz")):
         with tarfile.open(archive, "r:gz") as tf:
             for member in tf.getmembers():
-                if not member.isfile():
-                    continue
-                if Path(member.name).name != wanted:
+                if not member.isfile() or Path(member.name).name != wanted:
                     continue
                 fh = tf.extractfile(member)
                 if fh:
@@ -126,31 +164,43 @@ class EngineUpdater:
             "rollback_available": previous.exists() or override.exists(),
         }
 
-    async def check(self, name: str) -> dict[str, Any]:
-        source = SOURCES.get(name)
-        if not source:
-            raise ValueError("不支持的在线解析引擎")
-
-        # Avoid GitHub REST API and expanded-assets HTML. Shared NAS egress IPs
-        # frequently hit rate limits there. /releases/latest is a normal redirect,
-        # while /releases/latest/download/<asset> is GitHub's stable official link.
-        repo = str(source["repo"])
-        asset_name = str(source["asset_name"])
-        headers = {"User-Agent": "F2Media-Updater/0.6", "Accept": "text/html,*/*"}
-        async with httpx.AsyncClient(timeout=25, headers=headers, follow_redirects=True) as client:
-            response = await client.get(f"https://github.com/{repo}/releases/latest")
+    async def _latest_tag(self, name: str, client: httpx.AsyncClient) -> str:
+        source = SOURCES[name]
+        if source.get("pypi_json"):
+            response = await client.get(str(source["pypi_json"]))
             response.raise_for_status()
-            path = urlparse(str(response.url)).path.rstrip("/")
-            latest = unquote(path.rsplit("/", 1)[-1]) if "/tag/" in path else ""
+            version = str((response.json().get("info") or {}).get("version") or "").strip()
+            if not version:
+                raise RuntimeError(f"无法识别 {name} 最新 PyPI 版本")
+            return f"v{version}"
+
+        latest_url = str(source.get("latest_url") or "")
+        if not latest_url:
+            raise RuntimeError(f"{name} 没有配置 latest URL")
+        response = await client.get(latest_url)
+        response.raise_for_status()
+        path = urlparse(str(response.url)).path.rstrip("/")
+        latest = unquote(path.rsplit("/", 1)[-1]) if "/tag/" in path else ""
         if not latest:
             raise RuntimeError(f"无法识别 {name} 最新 Release 标签")
+        return latest
 
+    async def check(self, name: str) -> dict[str, Any]:
+        if name not in SOURCES:
+            raise ValueError("不支持的在线解析引擎")
+
+        headers = {"User-Agent": "F2Media-Updater/0.5.3", "Accept": "text/html,application/json,*/*"}
+        async with httpx.AsyncClient(timeout=25, headers=headers, follow_redirects=True) as client:
+            latest = await self._latest_tag(name, client)
+
+        asset_name = _asset_name(name, latest)
+        download_url = _download_url(name, latest, asset_name)
         local = self.local_status(name)
         return {
             **local,
             "latest_tag": latest,
             "latest_published_at": None,
-            "download_url": f"https://github.com/{repo}/releases/latest/download/{asset_name}",
+            "download_url": download_url,
             "asset_name": asset_name,
             "update_available": self._is_update_available(
                 name, str(local.get("version") or ""), latest, str(local.get("release_tag") or "")
@@ -161,15 +211,19 @@ class EngineUpdater:
     def _is_update_available(name: str, local: str, latest: str, installed_tag: str = "") -> bool:
         if not latest:
             return True
+        latest_norm = latest.lstrip("v")
         if installed_tag:
-            return installed_tag.lstrip("v") != latest.lstrip("v")
+            return installed_tag.lstrip("v") != latest_norm
         if not local:
             return True
         if name == "yt-dlp":
             normalized = local.replace("nightly@", "").strip()
-            return normalized != latest.lstrip("v")
+            return normalized != latest_norm
+        if name == "gallery-dl":
+            # standalone prints plain version such as 1.32.9
+            return latest_norm not in local
         if name == "x-cli":
-            return latest.lstrip("v") not in local
+            return latest_norm not in local
         return True
 
     async def update(self, name: str) -> dict[str, Any]:
@@ -186,7 +240,7 @@ class EngineUpdater:
         try:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(30, read=180), follow_redirects=True,
-                headers={"User-Agent": "F2Media-Updater/0.5"},
+                headers={"User-Agent": "F2Media-Updater/0.5.3"},
             ) as client:
                 async with client.stream("GET", url) as response:
                     response.raise_for_status()
