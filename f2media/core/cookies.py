@@ -52,25 +52,14 @@ class CookieStore:
         extra = self._fernet.decrypt(row["extra_cipher"]).decode() if row["extra_cipher"] else None
         return cookie, extra
 
-    def allowed_parsers(self, platform: str) -> list[str]:
-        row = self.db.get_cookie(platform)
-        if not row:
-            return []
-        try:
-            import json
-            value = json.loads(row["allowed_parsers_json"] or "[]")
-        except (TypeError, ValueError, KeyError):
-            return []
-        return [str(x) for x in value if isinstance(x, str) and x.strip()]
-
     def get_for_parser(
         self, platform: str, parser_key: str, parser_enabled: bool = False
     ) -> tuple[str | None, str | None]:
-        """Return Cookie only when both permission gates are open."""
-        if not parser_enabled or parser_key not in self.allowed_parsers(platform):
+        """仅当平台解析路由中的 Cookie 开关打开时返回 Cookie。"""
+        if not parser_enabled:
             return None, None
         return self.get(platform)
 
     def set_permissions(self, platform: str, allowed_parsers: list[str]) -> None:
-        cleaned = list(dict.fromkeys(str(x).strip() for x in allowed_parsers if str(x).strip()))
-        self.db.set_cookie_permissions(platform, cleaned)
+        """兼容旧接口；权限实际以平台解析路由的 cookie_enabled 为准。"""
+        self.db.set_cookie_permissions(platform, [])
