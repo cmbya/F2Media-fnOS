@@ -16,6 +16,18 @@
 .routeCheckAndButtons{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
 @media (max-width:900px){.routeActions{align-items:flex-start}.routeCheckAndButtons{margin-left:0}}.routeLabel{min-width:0;overflow:hidden}.routeName{min-width:0}.routeName b{display:block;min-width:0;white-space:nowrap!important;writing-mode:horizontal-tb!important;word-break:keep-all!important;overflow:hidden;text-overflow:ellipsis;line-height:1.35}.routeBadges{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:5px;min-height:22px}.routeBadges .badge{flex:0 0 auto}.routeMeta{font-size:11px;color:#7f8ca7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}@media(max-width:800px){.routeGrid{grid-template-columns:1fr}.routeItem{grid-template-columns:24px minmax(140px,1fr) auto}.routeBtns{grid-column:2/4}.app{display:block}.side{position:static;height:auto}.nav{display:flex;overflow:auto}.nav button{width:auto;white-space:nowrap}.main{padding:16px}.task{grid-template-columns:1fr}.split{grid-template-columns:1fr}}
 </style>
+<style>
+/* Route cards keep the parser name wide; action controls may wrap underneath. */
+.routeItem{display:block!important;width:100%;min-width:0}
+.routeCore,.routeMain,.routeActions{width:100%;min-width:0}
+.routeActions{justify-content:flex-end}
+.cookiePermissions{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.cookieEngineRow{display:grid;grid-template-columns:minmax(180px,1fr) auto auto;gap:10px;align-items:center;background:#0b1226;border:1px solid #2b3652;border-radius:9px;padding:9px 10px}
+.cookieEngineName{min-width:0}.cookieEngineName b{display:block;white-space:normal;overflow-wrap:anywhere}.cookieEngineName small{display:block;color:#8292af;margin-top:3px}
+.cookieGate{display:flex;align-items:center;gap:6px;white-space:nowrap;background:#121d36;border:1px solid #34405f;border-radius:8px;padding:7px 9px}
+.cookieGate input{width:auto;margin:0}
+@media(max-width:800px){.cookieEngineRow{grid-template-columns:1fr}.cookieGate{justify-content:flex-start}}
+</style>
 </head>
 <body><div class="app">
 <aside class="side"><div class="brand">F2Media</div><div class="nav">
@@ -118,5 +130,42 @@ async function loadLogs(){try{const [a,c]=await Promise.all([fetch('/api/logs',{
 async function loadDoctor(){try{$('#doctorData').textContent=JSON.stringify(await api('/api/doctor'),null,2)}catch(e){$('#doctorData').textContent=e.message}}$('#runDoctor').onclick=loadDoctor;
 
 loadParserChoices();
+const loadCookiesBase=loadCookies;
+loadCookies=async function(){
+  await loadCookiesBase();
+  try{
+    const routes=await api('/api/parser-routes');
+    const routeMap=Object.fromEntries(routes.map(x=>[x.platform,x]));
+    const cookieRows=await api('/api/cookies');
+    const cookieMap=Object.fromEntries(cookieRows.map(x=>[x.platform,x]));
+    for(const [platform,route] of Object.entries(routeMap)){
+      const card=[...document.querySelectorAll('#cookieGrid .card')].find(x=>x.querySelector('h2')?.textContent===PLATFORM_LABEL[platform]);
+      if(!card)continue;
+      const options=(route.items||[]).filter(x=>x.cookie_supported);
+      const area=card.querySelector('.cookiePermissions');
+      const save=card.querySelector('.saveCookiePermissions');
+      if(!area||!save)continue;
+      area.innerHTML=options.length?options.map(item=>`<div class="cookieEngineRow"><div class="cookieEngineName"><b>${esc(item.label||item.key)}</b><small>${esc(item.key)} · 解析器当前${item.enabled?'已启用':'已关闭'}</small></div><label class="cookieGate"><input class="cookieAllow" type="checkbox" value="${esc(item.key)}"><span>允许此解析读取</span></label><label class="cookieGate"><input class="cookieEnable" type="checkbox" value="${esc(item.key)}"><span>启用 Cookie</span></label></div>`).join(''):'<span class="muted">该平台没有支持 Cookie 的内置解析引擎</span>';
+      const allowed=new Set((cookieMap[platform]||{}).allowed_parsers||[]);
+      area.querySelectorAll('.cookieEngineRow').forEach(row=>{
+        const key=row.querySelector('.cookieAllow').value;
+        row.querySelector('.cookieAllow').checked=allowed.has(key);
+        row.querySelector('.cookieEnable').checked=!!(route.items||[]).find(x=>x.key===key)?.cookie_enabled;
+      });
+      save.textContent='保存 Cookie 权限';
+      save.onclick=async()=>{
+        try{
+          const allow=[...area.querySelectorAll('.cookieAllow:checked')].map(x=>x.value);
+          const enabled=new Map([...area.querySelectorAll('.cookieEnable')].map(x=>[x.value,x.checked]));
+          const items=(route.items||[]).map(item=>({key:item.key,enabled:!!item.enabled,cookie_enabled:enabled.has(item.key)?enabled.get(item.key):false}));
+          await api(`/api/cookies/${platform}/permissions`,{method:'PUT',body:JSON.stringify({allowed_parsers:allow})});
+          await api(`/api/parser-routes/${platform}`,{method:'PUT',body:JSON.stringify({items})});
+          toast(`${PLATFORM_LABEL[platform]} Cookie 权限已保存`);
+          await loadCookies();
+        }catch(e){toast(e.message)}
+      };
+    }
+  }catch(e){toast(e.message)}
+}
 setInterval(()=>{if($('#page-tasks').classList.contains('active'))loadTasks()},3000);
 </script></body></html>
