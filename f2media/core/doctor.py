@@ -60,6 +60,8 @@ def diagnostics(download_dir: Path, data_dir: Path) -> dict:
         tools[name] = {"path": exe, "version": _version([exe, arg]) if exe else "MISSING"}
     douyin = importlib.util.find_spec("douyin_video_parser")
     parsers = {
+        "parse_shenzjd": {"ok": True, "detail": os.getenv("F2MEDIA_PARSE_SHENZJD_URL", "http://192.168.100.125:18083")},
+        "short_videos_docker": {"ok": True, "detail": os.getenv("F2MEDIA_SHORT_VIDEOS_DOCKER_URL", "http://192.168.100.125:18084")},
         "douyin_parse": {"ok": douyin is not None, "detail": douyin.origin if douyin else "MISSING"},
         "free_api": {"ok": True, "detail": "configurable"},
         "x_cli": {"ok": engine_command("x-cli") is not None, "detail": " ".join(engine_command("x-cli") or [])},
@@ -91,6 +93,8 @@ def parser_diagnostics() -> list[dict]:
         {"parser": "free-api", "ok": True, "detail": "WebUI configurable"},
         {"parser": "x-cli", "ok": engine_command("x-cli") is not None, "detail": " ".join(engine_command("x-cli") or [])},
         {"parser": "short_videos", "ok": engine_command("short_videos") is not None, "detail": " ".join(engine_command("short_videos") or [])},
+        {"parser": "parse_shenzjd", "ok": True, "detail": os.getenv("F2MEDIA_PARSE_SHENZJD_URL", "http://192.168.100.125:18083")},
+        {"parser": "short_videos_docker", "ok": True, "detail": os.getenv("F2MEDIA_SHORT_VIDEOS_DOCKER_URL", "http://192.168.100.125:18084")},
         {"parser": "gallery-dl", "ok": engine_command("gallery-dl") is not None, "detail": " ".join(engine_command("gallery-dl") or [])},
         {"parser": "yt-dlp", "ok": engine_command("yt-dlp") is not None, "detail": " ".join(engine_command("yt-dlp") or [])},
     ]
