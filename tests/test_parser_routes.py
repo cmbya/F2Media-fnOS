@@ -44,6 +44,7 @@ def test_free_api_is_independent_route_item_on_every_platform(tmp_path):
     douyin = {x["key"]: x for x in store.get("douyin")["items"]}
     assert twitter[key]["recommended"] is True
     assert twitter[key]["enabled"] is True
+    assert twitter[key]["cookie_supported"] is True
     assert douyin[key]["recommended"] is False
     assert douyin[key]["enabled"] is False
 
