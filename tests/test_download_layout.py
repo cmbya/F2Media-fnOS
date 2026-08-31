@@ -45,7 +45,7 @@ def make_service(tmp_path: Path) -> DownloadService:
     return DownloadService(settings, app_settings, db, DummyCookies(), DummyParse(), DummyLogger())
 
 
-def test_output_layout_uses_platform_username_date_and_unique_filenames(tmp_path, monkeypatch):
+def test_output_layout_uses_platform_nickname_date_and_unique_filenames(tmp_path, monkeypatch):
     service = make_service(tmp_path)
     monkeypatch.setattr('f2media.service.today_local', lambda: '2026-08-20')
     result = {
@@ -55,7 +55,7 @@ def test_output_layout_uses_platform_username_date_and_unique_filenames(tmp_path
     }
     first = service._allocate_output_dir(result)
     second = service._allocate_output_dir(result)
-    relative = '抖音/user_001/2026-08-20'
+    relative = '抖音/测试用户/2026-08-20'
     assert first.relative_to(service.app_settings.effective_download_dir()).as_posix() == relative
     assert second == first
 
@@ -64,3 +64,29 @@ def test_output_layout_uses_platform_username_date_and_unique_filenames(tmp_path
     second_target = service._unique_media_target(first, '大海真蓝', '.mp4')
     assert first_target.name == '大海真蓝.mp4'
     assert second_target.name == '大海真蓝 (2).mp4'
+
+
+def test_username_folder_prefers_nickname_for_every_platform(tmp_path):
+    service = make_service(tmp_path)
+
+    assert service._username_folder({
+        'platform': 'kuaishou',
+        'author': {'nickname': '快手昵称', 'username': 'kuaishou_id'},
+    }) == '快手昵称'
+    assert service._username_folder({
+        'platform': 'instagram',
+        'author': {'name': 'Instagram 昵称', 'username': 'instagram_id'},
+    }) == 'Instagram 昵称'
+
+
+def test_username_folder_falls_back_to_platform_account_when_nickname_missing(tmp_path):
+    service = make_service(tmp_path)
+
+    assert service._username_folder({
+        'platform': 'douyin',
+        'author': {'unique_id': 'douyin_id'},
+    }) == 'douyin_id'
+    assert service._username_folder({
+        'platform': 'instagram',
+        'username': 'instagram_id',
+    }) == 'instagram_id'
