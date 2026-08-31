@@ -234,30 +234,52 @@ class DownloadService:
 
     @staticmethod
     def _username_folder(result: dict[str, Any]) -> str:
-        """Return the best available username-like value for the folder name."""
+        """Return creator nickname first; fall back to the platform account only if needed."""
         author = result.get("author")
-        candidates: list[Any] = [
+        nickname_candidates: list[Any] = [
+            result.get("nickname"),
+            result.get("author_name"),
+            result.get("authorName"),
+            result.get("display_name"),
+            result.get("displayName"),
+            result.get("owner"),
+            result.get("remarks"),
+        ]
+        account_candidates: list[Any] = [
             result.get("username"),
             result.get("user_name"),
             result.get("screen_name"),
             result.get("unique_id"),
+            result.get("uniqueId"),
+            result.get("uid"),
+            result.get("user_id"),
+            result.get("author_id"),
         ]
         if isinstance(author, dict):
-            candidates.extend(
+            nickname_candidates.extend(
+                author.get(key)
+                for key in (
+                    "nickname", "name", "display_name", "displayName",
+                    "author_name", "authorName", "owner", "remarks",
+                )
+            )
+            account_candidates.extend(
                 author.get(key)
                 for key in (
                     "username", "user_name", "screen_name", "unique_id", "uniqueId",
-                    "name", "id",
+                    "uid", "user_id", "author_id", "id",
                 )
             )
         else:
-            candidates.append(author)
-        for value in candidates:
-            if value is None:
-                continue
-            text = str(value).strip()
-            if text:
-                return safe_title(text, "未知用户")
+            nickname_candidates.append(author)
+
+        for candidates in (nickname_candidates, account_candidates):
+            for value in candidates:
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text:
+                    return safe_title(text, "未知用户")
         return "未知用户"
 
     @staticmethod
