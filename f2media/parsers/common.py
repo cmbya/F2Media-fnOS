@@ -113,6 +113,10 @@ def _author(value: Any) -> dict[str, str]:
     return {
         "id": str(value.get("id") or value.get("uid") or value.get("userId") or value.get("user_id") or ""),
         "name": str(value.get("name") or value.get("nickname") or value.get("nickName") or value.get("author") or ""),
+        "username": str(
+            value.get("username") or value.get("user_name") or value.get("screen_name")
+            or value.get("unique_id") or value.get("uniqueId") or ""
+        ),
         "avatar": str(value.get("avatar") or value.get("avatar_url") or value.get("face") or ""),
     }
 

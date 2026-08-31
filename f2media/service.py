@@ -183,7 +183,11 @@ class DownloadService:
         self.db.update_task(task_id, status="downloading", adapter=result.get("parser"), started_at=now_iso(), progress=1)
 
         out_dir = self._allocate_output_dir(result)
-        self.db.update_task(task_id, output_dir=str(out_dir), title=out_dir.name)
+        self.db.update_task(
+            task_id,
+            output_dir=str(out_dir),
+            title=safe_title(result.get("title"), "无标题"),
+        )
         log.write("INFO", f"下载目录: {out_dir}")
 
         try:
@@ -222,16 +226,61 @@ class DownloadService:
 
     def _allocate_output_dir(self, result: dict[str, Any]) -> Path:
         root = self.app_settings.effective_download_dir()
-        date_dir = root / today_local()
-        platform_dir = date_dir / PLATFORM_DIR.get(str(result.get("platform")), str(result.get("platform") or "其他"))
-        title = safe_title(result.get("title"), "无标题")
-        candidate = platform_dir / title
+        platform = PLATFORM_DIR.get(str(result.get("platform")), str(result.get("platform") or "其他"))
+        username = self._username_folder(result)
+        output_dir = root / platform / username / today_local()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return output_dir
+
+    @staticmethod
+    def _username_folder(result: dict[str, Any]) -> str:
+        """Return the best available username-like value for the folder name."""
+        author = result.get("author")
+        candidates: list[Any] = [
+            result.get("username"),
+            result.get("user_name"),
+            result.get("screen_name"),
+            result.get("unique_id"),
+        ]
+        if isinstance(author, dict):
+            candidates.extend(
+                author.get(key)
+                for key in (
+                    "username", "user_name", "screen_name", "unique_id", "uniqueId",
+                    "name", "id",
+                )
+            )
+        else:
+            candidates.append(author)
+        for value in candidates:
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return safe_title(text, "未知用户")
+        return "未知用户"
+
+    @staticmethod
+    def _unique_media_target(out_dir: Path, base: str, suffix: str) -> Path:
+        """Reserve a non-conflicting title-based media filename."""
         index = 1
-        while candidate.exists():
-            index += 1
-            candidate = platform_dir / f"{title} ({index})"
-        candidate.mkdir(parents=True, exist_ok=False)
-        return candidate
+        while True:
+            label = base if index == 1 else f"{base} ({index})"
+            candidate = out_dir / f"{label}{suffix}"
+            related = (
+                candidate,
+                candidate.with_suffix(candidate.suffix + ".part"),
+                candidate.with_suffix(".source.mp4"),
+            )
+            try:
+                if any(path.exists() for path in related):
+                    index += 1
+                    continue
+                # Keep the name reserved while an async download is in flight.
+                candidate.touch(exist_ok=False)
+                return candidate
+            except FileExistsError:
+                index += 1
 
     async def _download_result(
         self,
@@ -241,7 +290,7 @@ class DownloadService:
         cookie: str | None,
         log: TaskLog,
     ) -> tuple[list[str], int, int]:
-        title = safe_title(result.get("title"), out_dir.name)
+        title = safe_title(result.get("title"), "无标题")
         files: list[str] = []
         failed = 0
         expected = 0
@@ -265,8 +314,12 @@ class DownloadService:
                 continue
             base = title if idx == 1 else f"{title}{idx}"
             expected += 2
-            image = await self._download_image(task_id, image_url, out_dir / f"{base}.jpg", result, cookie, log)
-            video = await self._download_video(task_id, video_url, out_dir / f"{base}.mp4", result, cookie, log)
+            image = await self._download_image(
+                task_id, image_url, self._unique_media_target(out_dir, base, ".jpg"), result, cookie, log,
+            )
+            video = await self._download_video(
+                task_id, video_url, self._unique_media_target(out_dir, base, ".mp4"), result, cookie, log,
+            )
             if image.ok and image.path:
                 files.append(image.path)
             else:
@@ -310,7 +363,9 @@ class DownloadService:
             if kind == "image":
                 image_index += 1
                 base = title if image_index == 1 else f"{title}{image_index}"
-                transfer = await self._download_image(task_id, raw["url"], out_dir / f"{base}.jpg", result, cookie, log)
+                transfer = await self._download_image(
+                    task_id, raw["url"], self._unique_media_target(out_dir, base, ".jpg"), result, cookie, log,
+                )
             else:
                 video_index += 1
                 part_title = safe_title(str(raw.get("part_title") or ""), "")
@@ -322,7 +377,9 @@ class DownloadService:
                     base = f"{title} {label}"
                 else:
                     base = title if video_index == 1 else f"{title}{video_index}"
-                transfer = await self._download_video(task_id, raw["url"], out_dir / f"{base}.mp4", result, cookie, log)
+                transfer = await self._download_video(
+                    task_id, raw["url"], self._unique_media_target(out_dir, base, ".mp4"), result, cookie, log,
+                )
             if transfer.ok and transfer.path:
                 files.append(transfer.path)
             else:
@@ -517,7 +574,7 @@ class DownloadService:
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return TransferResult(False, message=f"yt-dlp exit={rc}; 未生成视频文件")
         source = max(candidates, key=lambda p: p.stat().st_size)
-        target = out_dir / f"{title}.mp4"
+        target = self._unique_media_target(out_dir, title, ".mp4")
         self.db.update_task(task_id, status="merging", progress=95)
         ok = await self._ensure_compatible_mp4(task_id, source, target, log)
         shutil.rmtree(tmp_dir, ignore_errors=True)
